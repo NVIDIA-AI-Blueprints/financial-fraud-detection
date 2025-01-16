@@ -12,12 +12,14 @@ Already a pro? Just edit this README.md and make it your own. Want to make it ea
 
 Build docker image
 ```sh
+ git clone ssh://git@gitlab-master.nvidia.com:12051/mnaim/graph-nims.git
+ cd graph-nims
  docker build --no-cache -t model_builder_container .
  ```
 
 Run training
  ```sh
- docker run -it --rm  --gpus all -e CUDA_VISIBLE_DEVICES=0,1  -v path_to_data_dir:/data  -v path_to_train_config_json_file:/app/config.json pydantic-json-validator --config /app/config.json
+ docker run -it --rm  --gpus all -e CUDA_VISIBLE_DEVICES=0,1  -v path_to_data_dir:/data  -v path_to_train_config_json_file:/app/config.json model_builder_container --config /app/config.json
 ```
 ## Add your files
 
