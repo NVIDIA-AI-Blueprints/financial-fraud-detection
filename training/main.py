@@ -1,5 +1,6 @@
 from config_schema import FullConfig, ModelType, GPUOption
 from train_xgboost import run_sg_xgboost_training
+from train_gnn_based_xgboost import sg_build_gnn_based_xgboost
 from pydantic import ValidationError, TypeAdapter
 import argparse
 import json
@@ -36,13 +37,16 @@ if __name__ == "__main__":
     for idx, model_config in enumerate(configuration.models):
         if model_config.kind == ModelType.XGB.value:
             if model_config.gpu == GPUOption.SINGLE.value:
-                run_sg_xgboost_training(
-                    data_dir=configuration.paths.data_dir,
-                    output_dir=configuration.paths.output_dir,
-                    training_config=model_config,
-                    idx_config=idx)
+                print("skipping for now.")
+                # run_sg_xgboost_training(
+                #     data_dir=configuration.paths.data_dir,
+                #     output_dir=configuration.paths.output_dir,
+                #     training_config=model_config,
+                #     idx_config=idx)
             else:
                 assert(model_config.gpu == GPUOption.MULTIGPU.value)
                 print('------- Multi-GPU XGBoost traning is not yet ready.-------')
         elif model_config.kind == ModelType.GRAPH_SAGE_XGB.value:
-            print('------- GraphSAGE training is not yet ready.-------')
+
+            sg_build_gnn_based_xgboost(configuration.paths.data_dir, configuration.paths.output_dir, num_transaction_nodes=281063)
+            # print('------- GraphSAGE training is not yet ready.-------')

@@ -66,7 +66,7 @@ def tran_sg_xgboost(
           'gamma': params_comb[3],
           'eval_metric': 'logloss',
           'objective': 'binary:logistic',  # For binary classification
-          'tree_method': 'hist',  # GPU support
+          'tree_method': 'hist',
           'device': 'cuda'
       }
 
