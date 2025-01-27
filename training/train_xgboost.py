@@ -21,9 +21,9 @@ from typing import  Union
 
 def tran_sg_xgboost(
       param_combinations: List[Tuple[int, float, int, float]],
-      data_dir,
-      output_dir,
-      model_file_name):
+      data_dir: str,
+      output_dir: str,
+      model_file_name: str):
   
   dataset_dir = data_dir
   xgb_data_dir = os.path.join(dataset_dir, 'xgb')
@@ -101,7 +101,7 @@ def tran_sg_xgboost(
 def run_sg_xgboost_training(
       data_dir: str,
       output_dir: str,
-      training_config: Union[XGBSingleConfig, XGBListConfig],
+      input_config: Union[XGBSingleConfig, XGBListConfig],
       idx_config: int) -> None:
   """
   This function does something with the validated Pydantic object.
@@ -109,15 +109,15 @@ def run_sg_xgboost_training(
   
   # Generate all combinations of hyperparameters
 
-  if isinstance(training_config.hyperparameters, XGBHyperparametersList):   
-    param_combinations = list(itertools.product(*training_config.hyperparameters.dict().values()))
+  if isinstance(input_config.hyperparameters, XGBHyperparametersList):
+    param_combinations = list(itertools.product(*input_config.hyperparameters.dict().values()))
 
-  elif isinstance(training_config.hyperparameters, XGBHyperparametersSingle):
-    h_dict = training_config.hyperparameters.dict()
+  elif isinstance(input_config.hyperparameters, XGBHyperparametersSingle):
+    h_dict = input_config.hyperparameters.dict()
     hyperparameters = {key: [h_dict[key]] for key in h_dict}
     param_combinations = list(itertools.product(*hyperparameters.values()))
     
   print(param_combinations)  
   print("** Total number of parameter combinations:", len(param_combinations))
-  tran_sg_xgboost(param_combinations, data_dir, output_dir, model_file_name=f'{training_config.kind}_{idx_config}.json')
+  tran_sg_xgboost(param_combinations, data_dir, output_dir, model_file_name=f'{input_config.kind}_{idx_config}.json')
 

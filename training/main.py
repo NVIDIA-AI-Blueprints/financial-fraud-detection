@@ -1,6 +1,7 @@
 from config_schema import FullConfig, ModelType, GPUOption
 from train_xgboost import run_sg_xgboost_training
-from train_gnn_based_xgboost import sg_build_gnn_based_xgboost
+from train_gnn_based_xgboost import (
+    sg_build_gnn_based_xgboost, run_sg_embedding_based_xgboost)
 from pydantic import ValidationError, TypeAdapter
 import argparse
 import json
@@ -33,20 +34,35 @@ if __name__ == "__main__":
     except (ValueError, ValidationError) as e:
         print("\nValidation error or incorrect format:")
         print(e)
+        exit(0)
 
-    for idx, model_config in enumerate(configuration.models):
-        if model_config.kind == ModelType.XGB.value:
-            if model_config.gpu == GPUOption.SINGLE.value:
+    for idx, user_config in enumerate(configuration.models):
+        if user_config.kind == ModelType.XGB.value:
+            if user_config.gpu == GPUOption.SINGLE.value:
                 print("skipping for now.")
                 # run_sg_xgboost_training(
                 #     data_dir=configuration.paths.data_dir,
                 #     output_dir=configuration.paths.output_dir,
-                #     training_config=model_config,
+                #     training_config=user_config,
                 #     idx_config=idx)
             else:
-                assert(model_config.gpu == GPUOption.MULTIGPU.value)
+                assert(user_config.gpu == GPUOption.MULTIGPU.value)
                 print('------- Multi-GPU XGBoost traning is not yet ready.-------')
-        elif model_config.kind == ModelType.GRAPH_SAGE_XGB.value:
+        elif user_config.kind == ModelType.GRAPH_SAGE_XGB.value:
+            if user_config.gpu == GPUOption.SINGLE.value:
+                run_sg_embedding_based_xgboost(
+                    configuration.paths.data_dir,
+                    configuration.paths.output_dir,
+                    user_config,
+                    num_transaction_nodes=281063 #TODO: Read it from meta file
+                    )
 
-            sg_build_gnn_based_xgboost(configuration.paths.data_dir, configuration.paths.output_dir, num_transaction_nodes=281063)
-            # print('------- GraphSAGE training is not yet ready.-------')
+                # sg_build_gnn_based_xgboost(
+                #     configuration.paths.data_dir,
+                #     configuration.paths.output_dir,
+                #     user_config,
+                #     num_transaction_nodes=281063 #TODO: Read it from meta file
+                #     )
+            else:
+                assert(user_config.gpu == GPUOption.MULTIGPU.value)
+                # print('------- GraphSAGE MG training is not yet ready.-------')
