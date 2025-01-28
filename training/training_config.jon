@@ -1,0 +1,64 @@
+{
+  "paths": {
+    "data_dir": "/data",
+    "output_dir": "/data/trained_models"
+  },
+  
+  "models": [
+  {
+    "kind": "XGBoost",
+    "gpu": "single",
+    "hyperparameters": {
+      "max_depth": 3,
+      "learning_rate": 0.1,
+      "n_estimators": 100,
+      "gamma": 0.0
+    }
+  },
+  {
+    "kind": "XGBoost",
+    "gpu": "single",
+    "hyperparameters": {
+      "max_depth": [6],
+      "learning_rate": [0.1],
+      "n_estimators": [128, 256],
+      "gamma": [0.0]
+    }
+  },
+  {
+    "kind": "XGBoost",
+    "gpu": "multi",
+    "hyperparameters": {
+      "max_depth": [6],
+      "learning_rate": [0.1],
+      "n_estimators": [64],
+      "gamma": [0.0]
+    }
+  },
+  {
+    "kind": "GraphSAGE_XGBoost",
+    "gpu": "single",
+    "hyperparameters": {
+    "hidden_channels": [16],
+    "n_hops": [1, 2],
+    "fan_out": [16],
+    "dropout_prob": [0.1],
+    "batch_size": [1024],
+    "n_folds": [3]
+    }
+  },
+  {
+    "kind": "GraphSAGE_XGBoost",
+    "gpu": "single",
+    "hyperparameters": {
+    "hidden_channels": 16,
+    "n_hops": 2,
+    "dropout_prob": 0.1,
+    "batch_size": 1024,
+    "fan_out": 16,
+    "num_epochs": 16
+    }
+  }
+
+]
+}

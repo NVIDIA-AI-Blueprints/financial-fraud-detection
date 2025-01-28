@@ -19,18 +19,12 @@ This NIM handle building a XGBoost model from generated GNN embeddings.  The NIM
 
 For testing:
 * Step 1: Build the Docker container
-```
-  cd training
-  sudo docker build --tag "model_builder_container" .
+```sh
+ cd graph-nims/training
+ docker build --no-cache -t model_builder_container .
 ```
 * Step 2: Run the container
-
-
-docker run -it --rm  --gpus all -e CUDA_VISIBLE_DEVICES=0,1  -v /home/mnaim/morpheus-experimental/ai-credit-fraud-workflow/data/TabFormer:/data  -v ~/training_configs/training_config.json:/app/config.json model_builder_container --config /app/config.json 
-
-A) You only need to change 0,1 to 0 if you have only one GPU
-B) Path to data, /home/mnaim/morpheus-experimental/ai-credit-fraud-workflow/data/TabFormer
-C) path to json file  ~/training_configs/training_config.json
-
-sudo docker build --tag "model_builder_container" .
+```sh
+ docker run --cap-add SYS_NICE -it --rm  --gpus all -v path_to_data_dir:/data  -v path_to_train_config_json_file:/app/config.json model_builder_container --config /app/config.json
+````
 
