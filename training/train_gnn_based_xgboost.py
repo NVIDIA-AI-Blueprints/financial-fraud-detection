@@ -209,7 +209,7 @@ class Metric(Enum):
     F1 = 'f1'
     PRECISION = 'precision'
 
-def evaluate_gnn(model, loader, metric = Metric.F1) -> float:
+def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
     """
     Evaluates the performance of the GraphSAGE model.
 
@@ -250,11 +250,11 @@ def evaluate_gnn(model, loader, metric = Metric.F1) -> float:
     # recall = recall_score(all_labels, all_preds, zero_division=0)
     # f1 = f1_score(all_labels, all_preds, zero_division=0)
 
-    if metric == Metric.PRECISION:
+    if metric == Metric.PRECISION.value:
         return precision_score(all_labels, all_preds, zero_division=0)
-    elif metric == Metric.RECALL:
+    elif metric == Metric.RECALL.value:
         return recall_score(all_labels, all_preds, zero_division=0)
-    elif metric == Metric.F1:
+    elif metric == Metric.F1.value:
         return f1_score(all_labels, all_preds, zero_division=0)
     
 
@@ -487,6 +487,7 @@ HyperParams = namedtuple(
         "n_hops",
         "fan_out",
         "batch_size",
+        "metric",
         "learning_rate",
         "dropout_prob",
         "hidden_channels",
@@ -503,7 +504,6 @@ def k_fold_validation(
     h_params: HyperParams,
     loss_function,
     early_stopping,
-    validation_metric: Metric,
     random_state=42,
     verbose=False
 ):
@@ -576,10 +576,10 @@ def k_fold_validation(
         # Train the GNN model
         for epoch in range(h_params.num_epochs):
             train_loss = train_gnn(model, train_loader, optimizer, loss_function)
-            metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
+            metric_value = evaluate_gnn(model, val_loader, metric=h_params.metric)
 
             if verbose:
-                print(f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric.value} : {metric_value}")
+                print(f"Epoch {epoch}, training loss : {train_loss}, validation {h_params.metric} : {metric_value}")
             if check:
                 check(metric_value, model)
                 if check.early_stop:
@@ -591,7 +591,7 @@ def k_fold_validation(
             # Load the Best Model
             model.load_state_dict(torch.load(check.path, weights_only=True))
         
-        metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
+        metric_value = evaluate_gnn(model, val_loader, metric=h_params.metric)
         metric_scores.append(metric_value)
         
     return np.mean(metric_scores)
@@ -644,7 +644,7 @@ class EarlyStopping:
 def train_on_specified_params(data, num_transaction_nodes, model_config,
                               hyper_params, loss_function, dir_to_save_models,
                               train_val_ratio= 0.8, early_stopping=None,
-                              validation_metric=Metric.RECALL,
+                              validation_metric=Metric.RECALL.value,
                               embedding_model_name='node_embedder.pth',
                               xgboost_model_name='embedding_based_xgb_model.json',
                               random_state=42,
@@ -693,7 +693,7 @@ def train_on_specified_params(data, num_transaction_nodes, model_config,
         metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
 
         if verbose:
-            print(f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric.value} : {metric_value}")
+            print(f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric} : {metric_value}")
         if early_stopping:
             early_stopping(metric_value, model)
             if early_stopping.early_stop:
@@ -744,7 +744,7 @@ def train_on_specified_params(data, num_transaction_nodes, model_config,
 def find_best_params(
         data, num_transaction_nodes:int, model_config: GraphSAGEModelConfig,
         params: GraphSAGEHyperparametersList, loss_function, early_stopping,
-        validation_metric:Metric=Metric.RECALL, random_state:int=42)->HyperParams:
+        random_state:int=42)->HyperParams:
 
     # Hyperparameter grid
     from sklearn.model_selection import ParameterGrid
@@ -755,6 +755,7 @@ def find_best_params(
         "fan_out": params.fan_out,
         "batch_size": params.batch_size,
         "learning_rate": params.learning_rate,
+        "metric": params.metric,
         "dropout_prob": params.dropout_prob,
         "hidden_channels": params.hidden_channels,
         "num_epochs": params.num_epochs,
@@ -769,6 +770,8 @@ def find_best_params(
     best_metric_value = -float("inf")
     best_h_params = grid[0]
 
+    print('-----------Running cross-validation to find best set of hyperparameters---------')
+
     for param_dict in grid:
         h_params = HyperParams(**param_dict)
 
@@ -779,11 +782,10 @@ def find_best_params(
             h_params,
             loss_function,
             early_stopping,
-            validation_metric,
             random_state=random_state,
             verbose=False,
         )
-        print(f"{h_params}, {validation_metric.value}: {metric_value}")
+        print(f"{h_params}, {h_params.metric}: {metric_value}")
         if metric_value > best_metric_value:
             best_h_params = h_params
             best_metric_value = metric_value
@@ -871,29 +873,26 @@ def run_sg_embedding_based_xgboost(
         patience=3, verbose=True, delta=0.0,
         path= os.path.join(output_dir, 'best_Graph_SAGE_model.pt'))
 
-    # TODO: Consider exposing validation_metric
-    validation_metric=Metric.RECALL
-
     if isinstance(input_config.hyperparameters, GraphSAGEHyperparametersSingle):
         embedder_model, xgb_model =  train_on_specified_params(
             data, num_transaction_nodes, model_config,
             input_config.hyperparameters, loss_function,
             output_dir, train_val_ratio=0.8,
             early_stopping=early_stopping,
-            validation_metric=validation_metric,
+            validation_metric=input_config.hyperparameters.metric,
             embedding_model_name=f'node_embedder_{model_index}.pth',
             xgboost_model_name=f'embedding_based_xgb_model_{model_index}.json',
             random_state=42)
-        
+
         evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
     
     elif isinstance(input_config.hyperparameters, GraphSAGEHyperparametersList):
-        
+
+        assert(isinstance(input_config.hyperparameters.metric, List))
         best_h_params = find_best_params(data, num_transaction_nodes, model_config,
                          input_config.hyperparameters, loss_function,
-                         early_stopping, validation_metric,
-                         random_state=random_state)
-        
+                         early_stopping, random_state=random_state)
+
         embedder_model, xgb_model =  train_on_specified_params(
             data, num_transaction_nodes, model_config,
             GraphSAGEHyperparametersSingle(
@@ -902,13 +901,14 @@ def run_sg_embedding_based_xgboost(
                 dropout_prob=best_h_params.dropout_prob,
                 batch_size=best_h_params.batch_size,
                 fan_out=best_h_params.fan_out,
+                metric=best_h_params.metric,
                 num_epochs=best_h_params.num_epochs,
                 learning_rate=best_h_params.learning_rate,
                 weight_decay=best_h_params.weight_decay),
             loss_function,
             output_dir, train_val_ratio=0.8,
             early_stopping=early_stopping,
-            validation_metric=validation_metric,
+            validation_metric=best_h_params.metric,
             embedding_model_name='node_embedder.pth',
             xgboost_model_name='embedding_based_xgb_model.json',
             random_state=42)

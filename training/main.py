@@ -3,7 +3,6 @@ import json
 import sys
 import os
 
-
 from pydantic import TypeAdapter, ValidationError
 
 from config_schema import FullConfig, GPUOption, ModelType
@@ -54,10 +53,7 @@ if __name__ == "__main__":
                 print('------- Multi-GPU XGBoost traning is not yet ready.-------')
         elif user_config.kind == ModelType.GRAPH_SAGE_XGB.value:
             if user_config.gpu == GPUOption.SINGLE.value:
-                #TODO: Read it from meta file
-
                 path_to_gnn_data = os.path.join(configuration.paths.data_dir, "gnn")
-
                 file_containing_nr_tx_nodes = 'info.json'
                 if os.path.exists(path_to_gnn_data):
                     for file_name in ['edges.csv', 'labels.csv', 'features.csv', file_containing_nr_tx_nodes]:
@@ -83,8 +79,6 @@ if __name__ == "__main__":
                     sys.exit(1)
 
                 num_transaction_nodes = json_data["NUM_TRANSACTION_NODES"]
-
-                print(f' num_transaction_nodes {num_transaction_nodes}')
 
                 run_sg_embedding_based_xgboost(
                     configuration.paths.data_dir,

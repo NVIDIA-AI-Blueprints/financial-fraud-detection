@@ -125,6 +125,10 @@ class GraphSAGEHyperparametersSingle(StrictBaseModel):
         ...,
         description="Number of neighbors to sample for each node (e.g., 16)."
     )
+    metric: Literal["recall", "f1", "precision"] = Field(
+        default="f1",
+        description="The metric to be used. Must be one of: recall, f1, or precision."
+    )
     num_epochs: int = Field(
         4,
         ge=1,
@@ -168,6 +172,11 @@ class GraphSAGEHyperparametersList(StrictBaseModel):
     fan_out: conlist( item_type=conint(gt=0), min_length=1) = Field(
         ...,
         description="List of positive integers representing fan-outs."
+    )
+
+    metric: conlist(Literal["recall", "f1", "precision"],min_length=1, max_length=1) = Field(
+        default=["f1"],
+        description="A list of metrics. Each must be one of: recall, f1, or precision."
     )
 
     num_epochs: conlist( item_type=conint(gt=0), min_length=1) = Field(
