@@ -39,18 +39,6 @@
     "kind": "GraphSAGE_XGBoost",
     "gpu": "single",
     "hyperparameters": {
-    "hidden_channels": [16],
-    "n_hops": [1, 2],
-    "fan_out": [16],
-    "dropout_prob": [0.1],
-    "batch_size": [1024],
-    "n_folds": [3]
-    }
-  },
-  {
-    "kind": "GraphSAGE_XGBoost",
-    "gpu": "single",
-    "hyperparameters": {
     "hidden_channels": 16,
     "n_hops": 2,
     "dropout_prob": 0.1,
@@ -59,6 +47,5 @@
     "num_epochs": 16
     }
   }
-
 ]
 }
