@@ -245,17 +245,10 @@ def evaluate_gnn(model, loader, metric = Metric.F1) -> float:
     all_preds = np.concatenate(all_preds)
     all_labels = np.concatenate(all_labels)
 
-    accuracy = accuracy_score(all_labels, all_preds)
-
-    precision = precision_score(all_labels, all_preds, zero_division=0)
-    recall = recall_score(all_labels, all_preds, zero_division=0)
-    f1 = f1_score(all_labels, all_preds, zero_division=0)
-
-    print(f"GNN Model Evaluation:")
-    print(f"Accuracy: {accuracy:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1: {f1:.4f}")
+    # accuracy = accuracy_score(all_labels, all_preds)
+    # precision = precision_score(all_labels, all_preds, zero_division=0)
+    # recall = recall_score(all_labels, all_preds, zero_division=0)
+    # f1 = f1_score(all_labels, all_preds, zero_division=0)
 
     if metric == Metric.PRECISION:
         return precision_score(all_labels, all_preds, zero_division=0)
@@ -365,9 +358,6 @@ def evaluate_xgboost(bst, embeddings, labels):
     # Predict using XGBoost on GPU
     preds = bst.predict(dtest)
 
-    print(f"pred_shape: {preds.shape}")
-    print(f"pred: {preds}")
-
     pred_labels = (preds > 0.5).astype(int)
 
     # Move labels to CPU for evaluation
@@ -382,39 +372,6 @@ def evaluate_xgboost(bst, embeddings, labels):
     conf_mat = confusion_matrix(labels.cpu().numpy(), pred_labels)
 
     return f1, recall, precision, accuracy, conf_mat
-
-
-class EarlyStopping:
-    """
-    EarlyStopping class to halt training when a monitored metric stops improving.
-
-    Parameters:
-    ----------
-    patience : int, optional (default=10)
-        The number of epochs with no improvement after which training will be stopped.
-    min_delta : float, optional (default=0)
-        The minimum change in the monitored metric to qualify as an improvement.
-        If the change is smaller than `min_delta`, it is considered as no improvement.
-    """
-
-    def __init__(self, patience=10, min_delta=0):
-
-        self.patience = patience
-        self.min_delta = min_delta
-        self.best_loss = float("inf")
-        self.counter = 0
-
-    def check_early_stopping(self, val_loss):
-
-        if self.best_loss - val_loss > self.min_delta:
-            self.best_loss = val_loss
-            self.counter = 0  # Reset counter if there's an improvement
-        else:
-            self.counter += 1  # Increment counter if no improvement
-
-        if self.counter >= self.patience:
-            return True
-        return False
 
 
 def load_data(
@@ -484,7 +441,6 @@ def load_data(
 
             if num_classes > 2:
                 wt_data = wt_data.T
-            print(f'wt_data = {wt_data}')
         else:
             wt_data = torch.as_tensor(cross_weights, device="cuda")
 
@@ -540,20 +496,20 @@ HyperParams = namedtuple(
 )
 
 
-def train_model_with_config(
+def k_fold_validation(
     data,
     num_transaction_nodes: int,
     model_config: GraphSAGEModelConfig,
     h_params: HyperParams,
     loss_function,
+    early_stopping,
+    validation_metric: Metric,
     random_state=42,
     verbose=False
 ):
     """
-    Train the GraphSAGE model for particular values of hyper-parameters.
+    Run k-fold cross validation.
     """
-
-    print(f"Training GraphSAGE with {h_params}")
 
     fold_size = num_transaction_nodes // h_params.n_folds
 
@@ -584,7 +540,7 @@ def train_model_with_config(
         )
 
         # Use same graph but different seed nodes
-        validation_loader = NeighborLoader(
+        val_loader = NeighborLoader(
             data,
             num_neighbors=[h_params.fan_out, h_params.fan_out],
             batch_size=h_params.batch_size,
@@ -604,7 +560,13 @@ def train_model_with_config(
             dropout_prob=h_params.dropout_prob,
         ).to(device)
 
-        # Define optimizer and loss function for GNN
+        check = EarlyStopping(
+            patience=early_stopping.patience,
+            path=early_stopping.path,
+            verbose=verbose,
+            delta=early_stopping.delta)
+
+        # Optimizer
         optimizer = torch.optim.Adam(
             model.parameters(),
             lr=h_params.learning_rate,
@@ -613,26 +575,33 @@ def train_model_with_config(
 
         # Train the GNN model
         for epoch in range(h_params.num_epochs):
-            _ = train_gnn(model, train_loader, optimizer, loss_function)
+            train_loss = train_gnn(model, train_loader, optimizer, loss_function)
+            metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
+
+            if verbose:
+                print(f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric.value} : {metric_value}")
+            if check:
+                check(metric_value, model)
+                if check.early_stop:
+                    if verbose:
+                        print(f'Early stopping at epoch {epoch}')
+                    break
+
+        if check:
+            # Load the Best Model
+            model.load_state_dict(torch.load(check.path, weights_only=True))
         
-        recall_fold = evaluate_gnn(model, validation_loader, metric= Metric.RECALL)
-        if verbose:
-            print(f'------- Evaluation on fold-{k}, {Metric.RECALL.value}  ={recall_fold}-----------')
+        metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
+        metric_scores.append(metric_value)
         
-        metric_scores.append(recall_fold)
-
-    return np.mean(metric_scores), model
+    return np.mean(metric_scores)
 
 
-
-import numpy as np
-import torch
-
-class ValEarlyStopping:
+class EarlyStopping:
     """
     Early stops the training if validation recall doesn't improve after a given patience.
     """
-    def __init__(self, patience=10, verbose=False, delta=0.0, path='checkpoint.pt'):
+    def __init__(self, patience=10, verbose=False, delta=0.0, path='best_model.pt'):
         """
         Args:
             patience (int): How long to wait after last time validation recall improved.
@@ -671,27 +640,16 @@ class ValEarlyStopping:
                     print('Early stopping triggered.')
 
 
-def reset_weights(m):
-    """
-    Reset weights for specific layers in the model.
-    Applies Xavier Uniform initialization to weights and sets biases to zero.
-    """
-    if isinstance(m, SAGEConv):
-        torch.nn.init.xavier_uniform_(m.lin_l.weight)
-        torch.nn.init.xavier_uniform_(m.lin_r.weight)
-        if m.bias is not None:
-            torch.nn.init.constant_(m.bias, 0)
-    elif isinstance(m, torch.nn.Linear):
-        torch.nn.init.xavier_uniform_(m.weight)
-        torch.nn.init.constant_(m.bias, 0)
 
-
-
-def train_on_specified_params(data, num_transaction_nodes, model_config, hyper_params, loss_function,
-                          dir_to_save_models, train_val_ratio= 0.8, validation_metric=Metric.RECALL,
-                          embedding_model_name='node_embedder.pth', 
-                          xgboost_model_name='embedding_based_xgb_model.json',
-                          early_stopping=None, random_state=42)->Tuple[GraphSAGE, xgb.Booster]:
+def train_on_specified_params(data, num_transaction_nodes, model_config,
+                              hyper_params, loss_function, dir_to_save_models,
+                              train_val_ratio= 0.8, early_stopping=None,
+                              validation_metric=Metric.RECALL,
+                              embedding_model_name='node_embedder.pth',
+                              xgboost_model_name='embedding_based_xgb_model.json',
+                              random_state=42,
+                              verbose=True
+                              )->Tuple[GraphSAGE, xgb.Booster]:
     
     # Set the device to GPU if available; otherwise, default to CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -734,7 +692,8 @@ def train_on_specified_params(data, num_transaction_nodes, model_config, hyper_p
         train_loss = train_gnn(model, train_loader, optimizer, loss_function)
         metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
 
-        print(f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric.value} : {metric_value}")
+        if verbose:
+            print(f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric.value} : {metric_value}")
         if early_stopping:
             early_stopping(metric_value, model)
             if early_stopping.early_stop:
@@ -743,7 +702,7 @@ def train_on_specified_params(data, num_transaction_nodes, model_config, hyper_p
 
     if early_stopping:
         # Load the Best Model
-        model.load_state_dict(torch.load(early_stopping.path))
+        model.load_state_dict(torch.load(early_stopping.path, weights_only=True))
 
     # Finally train on validation data well
     for epoch in range(hyper_params.num_epochs):
@@ -753,34 +712,6 @@ def train_on_specified_params(data, num_transaction_nodes, model_config, hyper_p
     if not os.path.exists(dir_to_save_models):
         os.makedirs(dir_to_save_models)
         torch.save(model, os.path.join(dir_to_save_models, embedding_model_name))
-
-    
-    
-    # # Train the GNN model
-
-    # best_train_loss = float("inf")
-
-    # for epoch in range(hyper_params.num_epochs):
-    #     train_loss = train_gnn(model, train_loader, optimizer, loss_function)
-
-    #     # Check early stopping criteria
-    #     if early_stopping:
-    #         if early_stopping.check_early_stopping(train_loss):
-    #             print(f"Early stopping triggered at epoch {epoch+1}.")
-    #             break
-
-    #     # Save the best model based on validation loss
-    #     if train_loss < best_train_loss:
-    #         best_train_loss = train_loss
-    #         if not os.path.exists(dir_to_save_models):
-    #             os.makedirs(dir_to_save_models)
-    #         torch.save(model, os.path.join(dir_to_save_models, embedding_model_name))
-
-    #         print(
-    #             f"Model saved at epoch {epoch+1} with training loss {best_train_loss:.4f}."
-    #         )
-
-
 
     
     # Train the XGBoost model based on embeddings produced by the GraphSAGE model
@@ -812,14 +743,14 @@ def train_on_specified_params(data, num_transaction_nodes, model_config, hyper_p
 
 def find_best_params(
         data, num_transaction_nodes:int, model_config: GraphSAGEModelConfig,
-        params: GraphSAGEHyperparametersList, loss_function,
-        validation_metric=Metric.RECALL, random_state=42):
+        params: GraphSAGEHyperparametersList, loss_function, early_stopping,
+        validation_metric:Metric=Metric.RECALL, random_state:int=42)->HyperParams:
 
     # Hyperparameter grid
     from sklearn.model_selection import ParameterGrid
 
     param_grid = {
-        "n_folds": [5], #TODO expose this as well
+        "n_folds": params.n_folds,
         "n_hops": params.n_hops,
         "fan_out": params.fan_out,
         "batch_size": params.batch_size,
@@ -827,7 +758,7 @@ def find_best_params(
         "dropout_prob": params.dropout_prob,
         "hidden_channels": params.hidden_channels,
         "num_epochs": params.num_epochs,
-        "weight_decay": [1e-5], #TODO expose this as well
+        "weight_decay": params.weight_decay
     }
 
 
@@ -837,21 +768,26 @@ def find_best_params(
 
     best_metric_value = -float("inf")
     best_h_params = grid[0]
+
     for param_dict in grid:
         h_params = HyperParams(**param_dict)
-        metric_value, _ = train_model_with_config(
+
+        metric_value= k_fold_validation(
             data,
             num_transaction_nodes,
             model_config,
             h_params,
             loss_function,
+            early_stopping,
+            validation_metric,
             random_state=random_state,
-            verbose=True,
+            verbose=False,
         )
-        print(f"h_params: {h_params}, {validation_metric.value}: {metric_value}")
+        print(f"{h_params}, {validation_metric.value}: {metric_value}")
         if metric_value > best_metric_value:
             best_h_params = h_params
-            best_metric_value =  metric_value
+            best_metric_value = metric_value
+
     return best_h_params
 
 
@@ -894,7 +830,8 @@ def run_sg_embedding_based_xgboost(
         dataset_root: str,
         output_dir: str,
         input_config: Union[GraphSAGESingleConfig, GraphSAGEListConfig],
-        num_transaction_nodes):
+        num_transaction_nodes,
+        model_index):
 
     random_state = 42
     set_seed(random_state)
@@ -929,265 +866,51 @@ def run_sg_embedding_based_xgboost(
             weight=torch.tensor([0.05, 0.95], dtype=torch.float32)
         ).to(device)
     
-    # early_stopping = EarlyStopping(patience=4, min_delta=0.005)
 
-    early_stopping = ValEarlyStopping(
-        patience=10, verbose=True, delta=0.0,
+    early_stopping = EarlyStopping(
+        patience=3, verbose=True, delta=0.0,
         path= os.path.join(output_dir, 'best_Graph_SAGE_model.pt'))
+
+    # TODO: Consider exposing validation_metric
+    validation_metric=Metric.RECALL
 
     if isinstance(input_config.hyperparameters, GraphSAGEHyperparametersSingle):
         embedder_model, xgb_model =  train_on_specified_params(
             data, num_transaction_nodes, model_config,
             input_config.hyperparameters, loss_function,
             output_dir, train_val_ratio=0.8,
-            embedding_model_name='node_embedder.pth', 
-            xgboost_model_name='embedding_based_xgb_model.json',
-            early_stopping=early_stopping, random_state=42)
+            early_stopping=early_stopping,
+            validation_metric=validation_metric,
+            embedding_model_name=f'node_embedder_{model_index}.pth',
+            xgboost_model_name=f'embedding_based_xgb_model_{model_index}.json',
+            random_state=42)
         
         evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
     
     elif isinstance(input_config.hyperparameters, GraphSAGEHyperparametersList):
-        print(f'>>>>>>>>>>{input_config.hyperparameters}')
-
         
-        # print(input_config.hyperparameters.dict())
-        # print(input_config.hyperparameters.dict().values())
-        # param_combinations = list(itertools.product(*input_config.hyperparameters.dict().values()))
-
-
-    # if isinstance(input_config.hyperparameters, GraphSAGEHyperparametersList):
-    #     param_combinations = list(itertools.product(*input_config.hyperparameters.dict().values()))
-    #     pass
-    #     # Find best hyper-parameters
-    #     # Train on best hyper-parameters
-
-    # elif isinstance(input_config.hyperparameters, GraphSAGEHyperparametersSingle):
-    #     pass
-    #     # Train on provided hyper-parameters
+        best_h_params = find_best_params(data, num_transaction_nodes, model_config,
+                         input_config.hyperparameters, loss_function,
+                         early_stopping, validation_metric,
+                         random_state=random_state)
         
-
-
-
-
-
-def sg_build_gnn_based_xgboost(
-        dataset_root: str,
-        output_dir: str,
-        input_config: Union[GraphSAGESingleConfig, GraphSAGEListConfig],
-        num_transaction_nodes):
-  
-  seed = 42
-  set_seed(seed)
-
-  if isinstance(input_config.hyperparameters, GraphSAGEHyperparametersList):
-    print(input_config.hyperparameters.dict())
-    print(input_config.hyperparameters.dict().values())
-    param_combinations = list(itertools.product(*input_config.hyperparameters.dict().values()))
-
-  elif isinstance(input_config.hyperparameters, GraphSAGEHyperparametersSingle):
-    h_dict = input_config.hyperparameters.dict()
-    hyperparameters = {key: [h_dict[key]] for key in h_dict}
-    param_combinations = list(itertools.product(*hyperparameters.values()))
-
-    # x = 2 > 1
-    # if x:
-    #     return
-    print(f'Received input_config  {input_config}')
-    print(f'GNN param_combinations  {param_combinations}')
-
-    seed = 42
-    set_seed(seed)
-
-    # #### Some config parameters for neighborhood sampler and training
-
-    args = type("", (), {})()
-
-    args.out_channels = 2
-    args.batch_size = 1024
-    args.fan_out = 8
-    args.use_cross_weights = True
-    args.cross_weights = None
-
-    # ##### Path to pre-processed data and directory to save models
-    args.dataset_base_path = dataset_root
-
-    args.dataset_root = os.path.join(args.dataset_base_path, "gnn")
-    args.model_root_dir = output_dir
-    # args.model_root_dir =  os.path.join(args.dataset_base_path, 'models')
-
-
-    early_stopping = EarlyStopping(patience=4, min_delta=0.005)
-
-    # Create graph and read node features
-    data, ef_store, num_nodes, num_features, num_classes, cross_wt_data = load_data(
-        args.dataset_root
-    )
-
-    model_config = GraphSAGEModelConfig(
-        in_channels=num_features, out_channels=num_classes
-    )
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    loss_function = torch.nn.CrossEntropyLoss(
-        weight=torch.tensor([0.1, 0.9], dtype=torch.float32)
-    ).to(device)
-
-    # Hyperparameter grid
-    from sklearn.model_selection import ParameterGrid
-
-    param_grid = {
-        "n_folds": [5],
-        "n_hops": [1, 2],
-        "fan_out": [8],
-        "batch_size": [1024],
-        "learning_rate": [0.005],
-        "dropout_prob": [0.1],
-        "hidden_channels": [32],
-        "num_epochs": [4],
-        "weight_decay": [1e-5],
-    }
-
-    grid = list(ParameterGrid(param_grid))
-
-    # Find the best hyperparameters in the parameter grid
-
-    best_recall_score = -float("inf")
-    for param_dict in grid:
-        h_params = HyperParams(**param_dict)
-        recall_value, _ = train_model_with_config(
-            data,
-            num_transaction_nodes,
-            model_config,
-            h_params,
+        embedder_model, xgb_model =  train_on_specified_params(
+            data, num_transaction_nodes, model_config,
+            GraphSAGEHyperparametersSingle(
+                hidden_channels=best_h_params.hidden_channels,
+                n_hops=best_h_params.n_hops,
+                dropout_prob=best_h_params.dropout_prob,
+                batch_size=best_h_params.batch_size,
+                fan_out=best_h_params.fan_out,
+                num_epochs=best_h_params.num_epochs,
+                learning_rate=best_h_params.learning_rate,
+                weight_decay=best_h_params.weight_decay),
             loss_function,
-            random_state=seed,
-            verbose=True,
-        )
-        print(f"h_params: {h_params} recall {recall_value}")
-        if recall_value > best_recall_score:
-            best_h_params = h_params
-            best_recall_score =  recall_value
-
-
-    # Train and save best GraphSAGE model on entire dataset
-
-    # Define the model
-    model = GraphSAGE(
-        in_channels=model_config.in_channels,
-        hidden_channels=best_h_params.hidden_channels,
-        out_channels=model_config.out_channels,
-        n_hops=best_h_params.n_hops,
-        dropout_prob=best_h_params.dropout_prob,
-    ).to(device)
-
-    train_loader = NeighborLoader(
-        data,
-        num_neighbors=[best_h_params.fan_out, best_h_params.fan_out],
-        batch_size=best_h_params.batch_size,
-        # input_nodes=torch.arange(num_transaction_nodes),
-        input_nodes=torch.arange(3*(num_transaction_nodes//4)),
-        shuffle=True,
-        random_state=seed,
-    )
-
-    # Define optimizer and loss function for GNN
-    optimizer = torch.optim.Adam(
-        model.parameters(),
-        lr=best_h_params.learning_rate,
-        weight_decay=best_h_params.weight_decay,
-    )
-
-    # Set up the early stopping object
-    
-    best_train_loss = float("inf")
-
-    # Train the GNN model
-
-    for epoch in range(best_h_params.num_epochs):
-        train_loss = train_gnn(model, train_loader, optimizer, loss_function)
-
-        # Check early stopping criteria
-        if early_stopping.check_early_stopping(train_loss):
-            print(f"Early stopping triggered at epoch {epoch+1}.")
-            break
-
-        # Save the best model based on validation loss
-        if train_loss < best_train_loss:
-            best_train_loss = train_loss
-            if not os.path.exists(args.model_root_dir):
-                os.makedirs(args.model_root_dir)
-            torch.save(model, os.path.join(args.model_root_dir, "node_embedder.pth"))
-
-            print(
-                f"Model saved at epoch {epoch+1} with training loss {best_train_loss:.4f}."
-            )
-
-
-
-############
-
-    val_loader = NeighborLoader(
-        data,
-        num_neighbors=[best_h_params.fan_out, best_h_params.fan_out],
-        batch_size=best_h_params.batch_size,
-        # input_nodes=torch.arange(num_transaction_nodes),
-        input_nodes=torch.arange(3*(num_transaction_nodes//4), num_transaction_nodes),
-        shuffle=True,
-        random_state=seed,
-    )
-
-    rr = evaluate_gnn(model, val_loader)
-    print(f'------- Evaluation *******, Recall ={rr}-----------')
+            output_dir, train_val_ratio=0.8,
+            early_stopping=early_stopping,
+            validation_metric=validation_metric,
+            embedding_model_name='node_embedder.pth',
+            xgboost_model_name='embedding_based_xgb_model.json',
+            random_state=42)
         
-
-###########
-
-
-    # Train the XGBoost model based on embeddings produced by the GraphSAGE model
-
-    # Set the device to GPU if available; otherwise, default to CPU
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Extract embeddings from the second-to-last layer and keep them on GPU
-    embeddings, labels = extract_embeddings(model, train_loader)
-
-    # Train an XGBoost model on the extracted embeddings (on GPU)
-    bst = train_xgboost(embeddings.to(device), labels.to(device))
-
-    xgb_model_path = os.path.join(args.model_root_dir, "embedding_based_xgb_model.json")
-
-    if not os.path.exists(os.path.dirname(xgb_model_path)):
-        os.makedirs(os.path.dirname(xgb_model_path))
-
-    bst.save_model(xgb_model_path)
-
-    # Evaluation the model on unseen data
-
-    # Load and prepare test data
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    test_path = os.path.join(args.dataset_base_path, "xgb/test.csv")
-    test_data = cudf.read_csv(test_path)
-    X = torch.tensor(test_data.iloc[:, :-1].values).to(torch.float32)
-    y = torch.tensor(test_data.iloc[:, -1].values).to(torch.long)
-
-    # Extract the embeddings of the transactions using the GraphSAGE model
-    model.eval()
-    with torch.no_grad():
-        test_embeddings = model(
-            X.to(device),
-            torch.tensor([[], []], dtype=torch.int).to(device),
-            return_hidden=True,
-        )
-
-    # Evaluate the XGBoost model
-
-    f1, recall, precision, accuracy, conf_mat = evaluate_xgboost(
-        bst, test_embeddings, y
-    )
-
-    print("XGBoost Evaluation:")
-    print(f"Accuracy: {accuracy:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1 Score: {f1:.4f}")
-    print("Confusion Matrix:", conf_mat)
+        evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
