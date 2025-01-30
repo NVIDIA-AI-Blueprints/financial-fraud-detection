@@ -1,4 +1,4 @@
-from typing import List, Literal, Union
+from typing import List, Literal, Union, Optional
 from pydantic import BaseModel, Field
 from enum import Enum
 
@@ -105,17 +105,9 @@ class GraphSAGEHyperparametersSingle(StrictBaseModel):
     Hyperparameters for XGB when each parameter is a list of possible numeric values.
     Often used for hyperparameter search or tuning.
     """
-    in_channels: int = Field(
-        ...,
-        description="Number of input channels (e.g., 64)."
-    )
     hidden_channels: int = Field(
         ...,
-        description="Number of hidden channels (e.g., 128)."
-    )
-    out_channels: int = Field(
-        ...,
-        description="Number of output channels (e.g., 10)."
+        description="Number of hidden channels (e.g., 32)."
     )
     n_hops: int = Field(
         ...,
@@ -127,39 +119,90 @@ class GraphSAGEHyperparametersSingle(StrictBaseModel):
     )
     batch_size: int = Field(
         ...,
-        description="Batch size (e.g., 32)."
+        description="Batch size (e.g., 1024)."
+    )
+    fan_out: int = Field(
+        ...,
+        description="Number of neighbors to sample for each node (e.g., 16)."
+    )
+    metric: Literal["recall", "f1", "precision"] = Field(
+        default="f1",
+        description="The metric to be used. Must be one of: recall, f1, or precision."
+    )
+    num_epochs: int = Field(
+        4,
+        ge=1,
+        description="Number of epochs to train the model."
+    )
+    learning_rate: float = Field(
+        0.005,
+        gt=0,
+        description="Learning rate (e.g., 0.005)."
+    )
+    weight_decay: float = Field(
+        1e-5,
+        ge=0,
+        description="Learning rate (e.g., 0.005)."
     )
 
+
+from pydantic import conint, conlist, confloat
 
 class GraphSAGEHyperparametersList(StrictBaseModel):
     """
     Hyperparameters for XGB when each parameter is a list of possible numeric values.
     Often used for hyperparameter search or tuning.
     """
-    in_channels: List[int] = Field(
+
+    hidden_channels: conlist( item_type=conint(gt=0), min_length=1) = Field(
         ...,
-        description="List of possible input channels."
+        description="List of positive integers representing hidden channel sizes."
     )
-    hidden_channels: List[int] = Field(
+
+    n_hops: conlist( item_type=conint(gt=0), min_length=1) = Field(
         ...,
-        description="List of possible hidden channels."
+        description="List of positive integers representing the number of hops (or GNN layers)."
     )
-    out_channels: int = Field(
+
+    batch_size: conlist( item_type=conint(gt=0), min_length=1) = Field(
         ...,
-        description="Number of output channels (usually a single integer)."
+        description="List of positive integers representing different batch sizes."
     )
-    n_hops: List[int] = Field(
+
+    fan_out: conlist( item_type=conint(gt=0), min_length=1) = Field(
         ...,
-        description="List of hop values for each variant or layer."
+        description="List of positive integers representing fan-outs."
     )
-    dropout_prob: List[float] = Field(
-        ...,
-        description="List of possible dropout probabilities."
+
+    metric: conlist(Literal["recall", "f1", "precision"],min_length=1, max_length=1) = Field(
+        default=["f1"],
+        description="A list of metrics. Each must be one of: recall, f1, or precision."
     )
-    batch_size: List[int] = Field(
-        ...,
-        description="List of possible batch sizes."
+
+    num_epochs: conlist( item_type=conint(gt=0), min_length=1) = Field(
+        [16],
+        description="List of positive integers representing num_epochs."
     )
+
+    n_folds: Optional[conlist( item_type=conint(gt=0), min_length=1)] = Field(
+        [5],
+        description="List of positive integers representing number folds."
+    )
+
+    dropout_prob: Optional[conlist( item_type=confloat(ge=0, le=1), min_length=1)] = Field(
+        [0.1],
+        description="List of floats in [0, 1], each representing dropout probabilities."
+    )
+
+    learning_rate: Optional[conlist( item_type=confloat(ge=0, le=1), min_length=1)] = Field(
+        [0.005],
+        description="List of floats in [0, 1], each representing learning rates."
+    )
+
+    weight_decay: Optional[conlist( item_type=confloat(ge=0, le=0.1), min_length=1)] = Field(
+        [1e-5],
+        description="List of floats in [0, 0.1], each representing learning rates."
+    )    
 
 
 class GraphSAGESingleConfig(StrictBaseModel):

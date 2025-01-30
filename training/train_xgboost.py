@@ -21,17 +21,15 @@ from typing import  Union
 
 def tran_sg_xgboost(
       param_combinations: List[Tuple[int, float, int, float]],
-      data_dir,
-      output_dir,
-      model_file_name):
+      data_dir: str,
+      output_dir: str,
+      model_file_name: str):
   
   dataset_dir = data_dir
   xgb_data_dir = os.path.join(dataset_dir, 'xgb')
   models_dir = output_dir
 
   train_data_path = os.path.join(xgb_data_dir, "training.csv")
-
-  print(f'training data path = {train_data_path}')
 
   df = cudf.read_csv(train_data_path)
 
@@ -66,7 +64,7 @@ def tran_sg_xgboost(
           'gamma': params_comb[3],
           'eval_metric': 'logloss',
           'objective': 'binary:logistic',  # For binary classification
-          'tree_method': 'hist',  # GPU support
+          'tree_method': 'hist',
           'device': 'cuda'
       }
 
@@ -78,8 +76,6 @@ def tran_sg_xgboost(
       
       # Get the evaluation score (logloss) on the validation set
       score = bst.best_score  # The logloss score (or use other eval_metric)
-
-      print(f'trained with {params}, score = {score}')
 
       # Update the best parameters if the current model is better
       if score < best_score:
@@ -96,28 +92,27 @@ def tran_sg_xgboost(
   if not os.path.exists(models_dir):
       os.makedirs(models_dir)
   final_model.save_model(os.path.join(models_dir, model_file_name))
+  print(f'Saved XGBoost model to {os.path.join(models_dir, model_file_name)}')
 
 
 def run_sg_xgboost_training(
       data_dir: str,
       output_dir: str,
-      training_config: Union[XGBSingleConfig, XGBListConfig],
-      idx_config: int) -> None:
+      input_config: Union[XGBSingleConfig, XGBListConfig],
+      model_index: int) -> None:
   """
   This function does something with the validated Pydantic object.
   """
   
   # Generate all combinations of hyperparameters
 
-  if isinstance(training_config.hyperparameters, XGBHyperparametersList):   
-    param_combinations = list(itertools.product(*training_config.hyperparameters.dict().values()))
+  if isinstance(input_config.hyperparameters, XGBHyperparametersList):
+    param_combinations = list(itertools.product(*input_config.hyperparameters.dict().values()))
 
-  elif isinstance(training_config.hyperparameters, XGBHyperparametersSingle):
-    h_dict = training_config.hyperparameters.dict()
+  elif isinstance(input_config.hyperparameters, XGBHyperparametersSingle):
+    h_dict = input_config.hyperparameters.dict()
     hyperparameters = {key: [h_dict[key]] for key in h_dict}
     param_combinations = list(itertools.product(*hyperparameters.values()))
-    
-  print(param_combinations)  
-  print("** Total number of parameter combinations:", len(param_combinations))
-  tran_sg_xgboost(param_combinations, data_dir, output_dir, model_file_name=f'{training_config.kind}_{idx_config}.json')
+
+  tran_sg_xgboost(param_combinations, data_dir, output_dir, model_file_name=f'{input_config.kind}_{model_index}.json')
 
