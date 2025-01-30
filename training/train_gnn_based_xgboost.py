@@ -293,7 +293,12 @@ def validation_loss(model, loader, criterion) -> float:
     return total_loss / batch_count
 
 
-def train_xgboost(embeddings, labels, hyper_params_xgb, random_state=42) -> xgb.Booster:
+def train_xgboost(
+    embeddings,
+    labels,
+    hyper_params_xgb: XGBHyperparametersSingle,
+    random_state: int = 42,
+) -> xgb.Booster:
     """
     Trains an XGBoost classifier on the provided embeddings and labels.
 
@@ -655,19 +660,19 @@ class EarlyStopping:
 
 def train_with_specific_hyperparams(
     data,
-    num_transaction_nodes,
-    model_config,
-    hyper_params_gnn,
-    hyper_params_xgb,
+    num_transaction_nodes: int,
+    model_config: GraphSAGEModelConfig,
+    hyper_params_gnn: GraphSAGEHyperparametersSingle,
+    hyper_params_xgb: XGBHyperparametersSingle,
     loss_function,
-    dir_to_save_models,
-    train_val_ratio=0.8,
-    early_stopping=None,
+    dir_to_save_models: str,
+    train_val_ratio: float = 0.8,
+    early_stopping: EarlyStopping = None,
     validation_metric=Metric.RECALL.value,
-    embedding_model_name="node_embedder.pth",
-    xgboost_model_name="embedding_based_xgb_model.json",
-    random_state=42,
-    verbose=False,
+    embedding_model_name: str = "node_embedder.pth",
+    xgboost_model_name: str = "embedding_based_xgb_model.json",
+    random_state: int = 42,
+    verbose: bool = False,
 ) -> Tuple[GraphSAGE, xgb.Booster]:
 
     # Set the device to GPU if available; otherwise, default to CPU

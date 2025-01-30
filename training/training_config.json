@@ -9,17 +9,6 @@
       "kind": "XGBoost",
       "gpu": "single",
       "hyperparameters": {
-        "max_depth": 3,
-        "learning_rate": 0.1,
-        "num_parallel_tree": 3,
-        "num_boost_round": 128,
-        "gamma": 0.0
-      }
-    },
-    {
-      "kind": "XGBoost",
-      "gpu": "single",
-      "hyperparameters": {
         "max_depth": [6],
         "learning_rate": [0.2],
         "num_parallel_tree": [3],
