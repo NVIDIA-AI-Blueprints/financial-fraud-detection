@@ -1,9 +1,3 @@
-# ## Train a GNN-based XGBoost Model
-# #### Goals
-# * Train a GNN (GraphSAGE) model that produces node (transaction) embeddings.
-# * Use these node embeddings to train an XGBoost model.
-# * Save the trained GNN and XGBoost models for inference.
-#
 
 # General-purpose libraries and OS handling
 import os
