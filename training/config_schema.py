@@ -190,7 +190,35 @@ class GraphSAGEHyperparametersList(StrictBaseModel):
     )
 
 
-class GraphSAGESingleConfig(StrictBaseModel):
+class GraphSAGEAndXGBConfig(StrictBaseModel):
+    """
+    GraphSAGE configuration where each hyperparameter is a single value.
+    Discriminated by kind='graphsage_single'.
+    """
+
+    gnn: GraphSAGEHyperparametersSingle = Field(
+        ..., description="Hyperparameters for GraphSAGE model."
+    )
+    xgb: XGBHyperparametersSingle = Field(
+        ..., description="Hyperparameters for xgboost model."
+    )
+
+
+class GraphSAGEGridAndXGBConfig(StrictBaseModel):
+    """
+    GraphSAGE configuration where each hyperparameter is a single value.
+    Discriminated by kind='graphsage_single'.
+    """
+
+    gnn: GraphSAGEHyperparametersList = Field(
+        ..., description="Hyperparameters for GraphSAGE model."
+    )
+    xgb: XGBHyperparametersSingle = Field(
+        ..., description="Hyperparameters for xgboost model."
+    )
+
+
+class GraphSAGEAndXGB(StrictBaseModel):
     """
     GraphSAGE configuration where each hyperparameter is a single value.
     Discriminated by kind='graphsage_single'.
@@ -201,12 +229,13 @@ class GraphSAGESingleConfig(StrictBaseModel):
         ...,
         description="Indicates whether to use a single GPU or multiple GPUs. Valid options are 'single' or 'multi'.",
     )
-    hyperparameters: GraphSAGEHyperparametersSingle = Field(
-        ..., description="All hyperparameters in single-value form."
+    hyperparameters: GraphSAGEAndXGBConfig = Field(
+        ...,
+        description="Hyperparameters of GraphSAGE and XGBoost model in single-value form.",
     )
 
 
-class GraphSAGEListConfig(StrictBaseModel):
+class GraphSAGEGridAndXGB(StrictBaseModel):
     """
     GraphSAGE configuration where hyperparameters are lists of values.
     Discriminated by kind='graphsage_list'.
@@ -218,14 +247,14 @@ class GraphSAGEListConfig(StrictBaseModel):
         description="Indicates whether to use a single GPU or multiple GPUs. Valid options are 'single' or 'multi'.",
     )
 
-    hyperparameters: GraphSAGEHyperparametersList = Field(
+    hyperparameters: GraphSAGEGridAndXGBConfig = Field(
         ..., description="All hyperparameters in list-of-values form."
     )
 
 
 # Union of All Configs
 ModelConfig = Union[
-    XGBSingleConfig, XGBListConfig, GraphSAGESingleConfig, GraphSAGEListConfig
+    XGBSingleConfig, XGBListConfig, GraphSAGEAndXGB, GraphSAGEGridAndXGB
 ]
 
 

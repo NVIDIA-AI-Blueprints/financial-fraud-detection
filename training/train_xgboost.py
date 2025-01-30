@@ -126,6 +126,56 @@ def tran_sg_xgboost(
         os.makedirs(models_dir)
     final_model.save_model(os.path.join(models_dir, model_file_name))
     print(f"Saved XGBoost model to {os.path.join(models_dir, model_file_name)}")
+    return bst
+
+
+import torch
+from sklearn.metrics import auc, f1_score, precision_score, recall_score
+
+from cuml.metrics import confusion_matrix, precision_recall_curve, roc_auc_score
+from cuml.metrics.accuracy import accuracy_score
+
+
+def evaluate_on_unseen_data(xgb_model: xgb.Booster, dataset_root: str):
+
+    # Load and prepare test data
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    test_data_path = os.path.join(dataset_root, "xgb/test.csv")
+    test_df = cudf.read_csv(test_data_path)
+    target_col_name = test_df.columns[-1]
+    dnew = xgb.DMatrix(test_df.drop(target_col_name, axis=1))
+
+    # Make predictions
+    y_pred_prob = xgb_model.predict(dnew)
+    y_pred = (y_pred_prob >= 0.5).astype(int)
+
+    y_test = test_df[target_col_name].values
+
+    # Accuracy
+    accuracy = accuracy_score(y_test, y_pred)
+    print(f"Accuracy: {accuracy:.4f}")
+
+    # ROC AUC Score
+    # r_auc = roc_auc_score(y_test, y_pred_prob)
+    # print(f"ROC AUC Score: {r_auc:.4f}")
+
+    y_test = cupy.asnumpy(y_test)
+    # Precision
+    precision = precision_score(y_test, y_pred)
+    print(f"Precision: {precision:.4f}")
+
+    # Recall
+    recall = recall_score(y_test, y_pred)
+    print(f"Recall: {recall:.4f}")
+
+    # F1 Score
+    f1 = f1_score(y_test, y_pred)
+    print(f"F1 Score: {f1:.4f}")
+
+    # Confusion Matrix
+    conf_mat = confusion_matrix(y_test, y_pred)
+    print("Confusion Matrix:")
+    print(conf_mat)
 
 
 def run_sg_xgboost_training(
@@ -157,9 +207,10 @@ def run_sg_xgboost_training(
     elif isinstance(input_config.hyperparameters, XGBHyperparametersSingle):
         hyperparameter_list.append(input_config.hyperparameters)
 
-    tran_sg_xgboost(
+    xgb_model = tran_sg_xgboost(
         hyperparameter_list,
         data_dir,
         output_dir,
         model_file_name=f"{input_config.kind}_{model_index}.json",
     )
+    evaluate_on_unseen_data(xgb_model, data_dir)

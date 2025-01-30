@@ -1,4 +1,3 @@
-
 # General-purpose libraries and OS handling
 import os
 import itertools
@@ -8,8 +7,11 @@ from typing import List, Tuple, Dict, Union
 from config_schema import (
     GraphSAGEHyperparametersSingle,
     GraphSAGEHyperparametersList,
-    GraphSAGESingleConfig,
-    GraphSAGEListConfig,
+    GraphSAGEAndXGB,
+    GraphSAGEGridAndXGB,
+    GraphSAGEAndXGBConfig,
+    GraphSAGEGridAndXGBConfig,
+    XGBHyperparametersSingle,
 )
 
 # GPU-accelerated libraries (torch, cupy, cudf, rmm)
@@ -291,7 +293,7 @@ def validation_loss(model, loader, criterion) -> float:
     return total_loss / batch_count
 
 
-def train_xgboost(embeddings, labels, random_state=42) -> xgb.Booster:
+def train_xgboost(embeddings, labels, hyper_params_xgb, random_state=42) -> xgb.Booster:
     """
     Trains an XGBoost classifier on the provided embeddings and labels.
 
@@ -312,15 +314,17 @@ def train_xgboost(embeddings, labels, random_state=42) -> xgb.Booster:
     labels_cudf = cudf.Series(cp.from_dlpack(to_dlpack(labels)))
     embeddings_cudf = cudf.DataFrame(cp.from_dlpack(to_dlpack(embeddings)))
 
+    assert isinstance(hyper_params_xgb, XGBHyperparametersSingle)
+
     # Convert data to DMatrix format for XGBoost on GPU
     dtrain = xgb.DMatrix(embeddings_cudf, label=labels_cudf)
 
     # Set XGBoost parameters for GPU usage
     param = {
-        "max_depth": 6,
-        "learning_rate": 0.2,
-        "gamma": 0.0,
-        "num_parallel_tree": 3,
+        "max_depth": hyper_params_xgb.max_depth,
+        "learning_rate": hyper_params_xgb.learning_rate,
+        "gamma": hyper_params_xgb.gamma,
+        "num_parallel_tree": hyper_params_xgb.num_parallel_tree,
         "eval_metric": "logloss",
         "objective": "binary:logistic",
         "tree_method": "hist",
@@ -329,7 +333,7 @@ def train_xgboost(embeddings, labels, random_state=42) -> xgb.Booster:
     }
 
     # Train the XGBoost model
-    bst = xgb.train(param, dtrain, num_boost_round=512)
+    bst = xgb.train(param, dtrain, num_boost_round=hyper_params_xgb.num_boost_round)
 
     return bst
 
@@ -653,7 +657,8 @@ def train_with_specific_hyperparams(
     data,
     num_transaction_nodes,
     model_config,
-    hyper_params,
+    hyper_params_gnn,
+    hyper_params_xgb,
     loss_function,
     dir_to_save_models,
     train_val_ratio=0.8,
@@ -671,16 +676,16 @@ def train_with_specific_hyperparams(
     # Define the model
     model = GraphSAGE(
         in_channels=model_config.in_channels,
-        hidden_channels=hyper_params.hidden_channels,
+        hidden_channels=hyper_params_gnn.hidden_channels,
         out_channels=model_config.out_channels,
-        n_hops=hyper_params.n_hops,
-        dropout_prob=hyper_params.dropout_prob,
+        n_hops=hyper_params_gnn.n_hops,
+        dropout_prob=hyper_params_gnn.dropout_prob,
     ).to(device)
 
     train_loader = NeighborLoader(
         data,
-        num_neighbors=[hyper_params.fan_out, hyper_params.fan_out],
-        batch_size=hyper_params.batch_size,
+        num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
+        batch_size=hyper_params_gnn.batch_size,
         input_nodes=torch.arange(int(train_val_ratio * num_transaction_nodes)),
         shuffle=True,
         random_state=random_state,
@@ -688,8 +693,8 @@ def train_with_specific_hyperparams(
 
     val_loader = NeighborLoader(
         data,
-        num_neighbors=[hyper_params.fan_out, hyper_params.fan_out],
-        batch_size=hyper_params.batch_size,
+        num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
+        batch_size=hyper_params_gnn.batch_size,
         input_nodes=torch.arange(
             int(train_val_ratio * num_transaction_nodes), num_transaction_nodes
         ),
@@ -699,11 +704,11 @@ def train_with_specific_hyperparams(
 
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=hyper_params.learning_rate,
-        weight_decay=hyper_params.weight_decay,
+        lr=hyper_params_gnn.learning_rate,
+        weight_decay=hyper_params_gnn.weight_decay,
     )
 
-    for epoch in range(hyper_params.num_epochs):
+    for epoch in range(hyper_params_gnn.num_epochs):
         train_loss = train_gnn(model, train_loader, optimizer, loss_function)
         metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
 
@@ -723,7 +728,7 @@ def train_with_specific_hyperparams(
         model.load_state_dict(torch.load(early_stopping.path, weights_only=True))
 
     # Finally train on validation data well
-    for epoch in range(hyper_params.num_epochs):
+    for epoch in range(hyper_params_gnn.num_epochs):
         train_loss = train_gnn(model, val_loader, optimizer, loss_function)
 
     # And, save the final model
@@ -734,8 +739,8 @@ def train_with_specific_hyperparams(
     # Train the XGBoost model based on embeddings produced by the GraphSAGE model
     data_loader = NeighborLoader(
         data,
-        num_neighbors=[hyper_params.fan_out, hyper_params.fan_out],
-        batch_size=hyper_params.batch_size,
+        num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
+        batch_size=hyper_params_gnn.batch_size,
         input_nodes=torch.arange(num_transaction_nodes),
         shuffle=True,
         random_state=random_state,
@@ -745,7 +750,7 @@ def train_with_specific_hyperparams(
     embeddings, labels = extract_embeddings(model, data_loader)
 
     # Train an XGBoost model on the extracted embeddings (on GPU)
-    bst = train_xgboost(embeddings.to(device), labels.to(device))
+    bst = train_xgboost(embeddings.to(device), labels.to(device), hyper_params_xgb)
 
     xgb_model_path = os.path.join(dir_to_save_models, xgboost_model_name)
 
@@ -852,7 +857,7 @@ def evaluate_on_unseen_data(
 def run_sg_embedding_based_xgboost(
     dataset_root: str,
     output_dir: str,
-    input_config: Union[GraphSAGESingleConfig, GraphSAGEListConfig],
+    input_config: Union[GraphSAGEAndXGB, GraphSAGEGridAndXGB],
     num_transaction_nodes,
     model_index,
 ):
@@ -861,8 +866,8 @@ def run_sg_embedding_based_xgboost(
     set_seed(random_state)
 
     assert isinstance(
-        input_config.hyperparameters, GraphSAGEHyperparametersList
-    ) or isinstance(input_config.hyperparameters, GraphSAGEHyperparametersSingle)
+        input_config.hyperparameters, GraphSAGEGridAndXGBConfig
+    ) or isinstance(input_config.hyperparameters, GraphSAGEAndXGBConfig)
 
     path_to_gnn_data = os.path.join(dataset_root, "gnn")
     use_cross_weights = True
@@ -894,17 +899,18 @@ def run_sg_embedding_based_xgboost(
         path=os.path.join(output_dir, "best_Graph_SAGE_model.pt"),
     )
 
-    if isinstance(input_config.hyperparameters, GraphSAGEHyperparametersSingle):
+    if isinstance(input_config.hyperparameters, GraphSAGEAndXGBConfig):
         embedder_model, xgb_model = train_with_specific_hyperparams(
             data,
             num_transaction_nodes,
             model_config,
-            input_config.hyperparameters,
+            input_config.hyperparameters.gnn,
+            input_config.hyperparameters.xgb,
             loss_function,
             output_dir,
             train_val_ratio=0.8,
             early_stopping=early_stopping,
-            validation_metric=input_config.hyperparameters.metric,
+            validation_metric=input_config.hyperparameters.gnn.metric,
             embedding_model_name=f"node_embedder_{model_index}.pth",
             xgboost_model_name=f"embedding_based_xgb_model_{model_index}.json",
             random_state=42,
@@ -912,14 +918,12 @@ def run_sg_embedding_based_xgboost(
 
         evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
 
-    elif isinstance(input_config.hyperparameters, GraphSAGEHyperparametersList):
-
-        assert isinstance(input_config.hyperparameters.metric, List)
+    elif isinstance(input_config.hyperparameters, GraphSAGEGridAndXGBConfig):
         best_h_params = find_best_params(
             data,
             num_transaction_nodes,
             model_config,
-            input_config.hyperparameters,
+            input_config.hyperparameters.gnn,
             loss_function,
             early_stopping,
             random_state=random_state,
@@ -940,6 +944,7 @@ def run_sg_embedding_based_xgboost(
                 learning_rate=best_h_params.learning_rate,
                 weight_decay=best_h_params.weight_decay,
             ),
+            input_config.hyperparameters.xgb,
             loss_function,
             output_dir,
             train_val_ratio=0.8,
