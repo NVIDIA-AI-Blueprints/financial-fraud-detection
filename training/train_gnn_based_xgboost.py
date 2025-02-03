@@ -3,6 +3,7 @@ import os
 import itertools
 from collections import namedtuple
 from typing import List, Tuple, Dict, Union
+from enum import Enum
 
 from config_schema import (
     GraphSAGEHyperparametersSingle,
@@ -52,13 +53,15 @@ import cupy as cp
 import numpy as np
 import random
 
-# Machine learning metrics from sklearn
 from sklearn.metrics import (
     accuracy_score,
-    precision_score,
     recall_score,
+    precision_score,
     f1_score,
     roc_auc_score,
+    average_precision_score,
+    confusion_matrix,
+    precision_recall_curve,
 )
 
 from torch.utils.dlpack import to_dlpack
@@ -203,13 +206,114 @@ def extract_embeddings(model, loader) -> Tuple[torch.Tensor, torch.Tensor]:
     return embeddings, labels
 
 
-from enum import Enum
-
-
 class Metric(Enum):
     RECALL = "recall"
     F1 = "f1"
     PRECISION = "precision"
+
+
+def maximize_f1(model, loader):
+    model.eval()
+    probs = []
+    targets = []
+    with torch.no_grad():
+        for batch in loader:
+
+            batch_size = batch.batch_size
+            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
+            pred_probs = torch.softmax(out, dim=1)[:, 1]
+            y = batch.y[:batch_size].view(-1).to(torch.long)
+            probs.append(pred_probs.cpu())
+            targets.append(y.cpu())
+    probs = torch.cat(probs).numpy()
+    targets = torch.cat(targets).numpy()
+
+    precision, recall, thresholds = precision_recall_curve(targets, probs)
+
+    # Compute F1 Score for Each Threshold
+    f1_scores = []
+    for threshold in thresholds:
+        # Convert probabilities to binary predictions based on the current threshold
+        y_pred = (probs >= threshold).astype(int)
+        # Compute the F1 score for these predictions
+        f1 = f1_score(targets, y_pred)
+        f1_scores.append(f1)
+
+    f1_scores = np.array(f1_scores)
+
+    # Select the Best Threshold (that maximizes the F1 score)
+    best_index = np.argmax(f1_scores)
+    best_threshold = thresholds[best_index]
+    best_f1 = f1_scores[best_index]
+    return best_threshold, best_f1
+
+
+def tune_threshold(model, loader, desired_recall=0.90):
+    """
+    Evaluates the performance of the GraphSAGE model.
+
+    Parameters:
+    ----------
+    model : torch.nn.Module
+        The GNN model to be evaluated.
+    loader : cugraph_pyg.loader.NeighborLoader
+        NeighborLoader that provides batches of data for evaluation.
+
+    Returns:
+    -------
+    float
+        The average f1-score computed over all batches.
+    """
+
+    model.eval()
+    probs = []
+    targets = []
+    with torch.no_grad():
+        for batch in loader:
+
+            batch_size = batch.batch_size
+            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
+            pred_probs = torch.softmax(out, dim=1)[:, 1]
+            y = batch.y[:batch_size].view(-1).to(torch.long)
+            probs.append(pred_probs.cpu())
+            targets.append(y.cpu())
+    probs = torch.cat(probs).numpy()
+    targets = torch.cat(targets).numpy()
+
+    precision_vals, recall_vals, thresholds = precision_recall_curve(targets, probs)
+
+    # Find the threshold closest to the desired recall
+    idx = np.where(recall_vals >= desired_recall)[0]
+    if len(idx) == 0:
+        threshold = 0.5  # Default threshold if desired recall not achievable
+    else:
+        threshold = thresholds[idx[-1]]
+
+    # Make predictions with the new threshold
+    preds = (probs > threshold).astype(int)
+
+    # Recompute metrics
+    final_recall = recall_score(targets, preds)
+    final_precision = precision_score(targets, preds, zero_division=0)
+    final_f1 = f1_score(targets, preds, zero_division=0)
+    final_roc_auc = roc_auc_score(targets, probs)
+    final_auc_pr = average_precision_score(targets, probs)
+    final_cm = confusion_matrix(targets, preds)
+
+    print(
+        f"\n Need to set the threshold to {threshold:.4f} to achieve "
+        f"recall of {desired_recall} where the precision would be {final_precision}."
+    )
+
+    return {
+        "threshold": threshold,
+        "recall": final_recall,
+        "precision": final_precision,
+        "f1_score": final_f1,
+        "roc_auc": final_roc_auc,
+        "auc_pr": final_auc_pr,
+        "confusion_matrix": final_cm,
+    }
 
 
 def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
@@ -472,8 +576,8 @@ def load_data(
     x_feature_tensor = torch.stack(col_tensors).T
 
     feature_store = cugraph_pyg.data.TensorDictFeatureStore()
-    feature_store["node", "x"] = x_feature_tensor
-    feature_store["node", "y"] = y_label_tensor
+    feature_store["node", "x", None] = x_feature_tensor
+    feature_store["node", "y", None] = y_label_tensor
 
     num_features = len(feature_columns)
 
@@ -658,7 +762,7 @@ class EarlyStopping:
                     print("Early stopping triggered.")
 
 
-def train_with_specific_hyperparams(
+def train_with_specific_hyper_params(
     data,
     num_transaction_nodes: int,
     model_config: GraphSAGEModelConfig,
@@ -675,6 +779,8 @@ def train_with_specific_hyperparams(
     verbose: bool = False,
 ) -> Tuple[GraphSAGE, xgb.Booster]:
 
+    print(f"Running GraphSAGE based XGBoost training....")
+
     # Set the device to GPU if available; otherwise, default to CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -687,11 +793,17 @@ def train_with_specific_hyperparams(
         dropout_prob=hyper_params_gnn.dropout_prob,
     ).to(device)
 
+    num_training_tx = int(train_val_ratio * num_transaction_nodes)
+    tx_nodes_perm = torch.randperm(num_transaction_nodes)
+    train_txs = tx_nodes_perm[:num_training_tx]
+    val_txs = tx_nodes_perm[num_training_tx:num_transaction_nodes]
+
     train_loader = NeighborLoader(
         data,
         num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
         batch_size=hyper_params_gnn.batch_size,
-        input_nodes=torch.arange(int(train_val_ratio * num_transaction_nodes)),
+        input_nodes=train_txs,
+        # input_nodes=torch.arange(int(train_val_ratio * num_transaction_nodes)),
         shuffle=True,
         random_state=random_state,
     )
@@ -700,9 +812,10 @@ def train_with_specific_hyperparams(
         data,
         num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
         batch_size=hyper_params_gnn.batch_size,
-        input_nodes=torch.arange(
-            int(train_val_ratio * num_transaction_nodes), num_transaction_nodes
-        ),
+        input_nodes=val_txs,
+        # input_nodes=torch.arange(
+        #     int(train_val_ratio * num_transaction_nodes), num_transaction_nodes
+        # ),
         shuffle=False,
         random_state=random_state,
     )
@@ -739,7 +852,10 @@ def train_with_specific_hyperparams(
     # And, save the final model
     if not os.path.exists(dir_to_save_models):
         os.makedirs(dir_to_save_models)
-        torch.save(model, os.path.join(dir_to_save_models, embedding_model_name))
+    path_to_node_embedder = os.path.join(dir_to_save_models, embedding_model_name)
+    torch.save(model, path_to_node_embedder)
+
+    print(f"Saved GraphSAGE node embedder to {path_to_node_embedder}")
 
     # Train the XGBoost model based on embeddings produced by the GraphSAGE model
     data_loader = NeighborLoader(
@@ -761,9 +877,9 @@ def train_with_specific_hyperparams(
 
     if not os.path.exists(os.path.dirname(xgb_model_path)):
         os.makedirs(os.path.dirname(xgb_model_path))
-
     bst.save_model(xgb_model_path)
 
+    print(f"Saved GraphSAGE based XGBoost model to {xgb_model_path}")
     return model, bst
 
 
@@ -905,7 +1021,7 @@ def run_sg_embedding_based_xgboost(
     )
 
     if isinstance(input_config.hyperparameters, GraphSAGEAndXGBConfig):
-        embedder_model, xgb_model = train_with_specific_hyperparams(
+        embedder_model, xgb_model = train_with_specific_hyper_params(
             data,
             num_transaction_nodes,
             model_config,
@@ -921,8 +1037,6 @@ def run_sg_embedding_based_xgboost(
             random_state=42,
         )
 
-        evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
-
     elif isinstance(input_config.hyperparameters, GraphSAGEGridAndXGBConfig):
         best_h_params = find_best_params(
             data,
@@ -934,7 +1048,7 @@ def run_sg_embedding_based_xgboost(
             random_state=random_state,
         )
 
-        embedder_model, xgb_model = train_with_specific_hyperparams(
+        embedder_model, xgb_model = train_with_specific_hyper_params(
             data,
             num_transaction_nodes,
             model_config,
@@ -959,5 +1073,3 @@ def run_sg_embedding_based_xgboost(
             xgboost_model_name="embedding_based_xgb_model.json",
             random_state=42,
         )
-
-        evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)

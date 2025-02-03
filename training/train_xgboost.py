@@ -1,19 +1,18 @@
-from collections import defaultdict
 import itertools
 import os
 
 import cupy
 import cudf
-import matplotlib.pyplot as plt
 import xgboost as xgb
 
 from cuml.metrics import confusion_matrix, precision_recall_curve, roc_auc_score
 from cuml.metrics.accuracy import accuracy_score
 from cuml.model_selection import train_test_split
 
+import torch
 from sklearn.metrics import auc, f1_score, precision_score, recall_score
 
-from typing import List, Literal, Tuple, Union
+from typing import List, Union
 
 from config_schema import (
     XGBSingleConfig,
@@ -23,11 +22,8 @@ from config_schema import (
 )
 
 
-def f1_eval_gpu(preds, dMat):
-    labels = dMat.get_label()
-    preds = (preds > 0.5).astype(int)  # Binary threshold
-    f1 = f1_score(labels, preds)
-    print(f"f1 = {f1}")
+def f1_eval_gpu(predictions, labels):
+    f1 = f1_score(labels, predictions)
     return "f1", f1
 
 
@@ -37,8 +33,11 @@ def tran_sg_xgboost(
     output_dir: str,
     model_file_name: str,
     random_state: int = 42,
+    decision_threshold: float = 0.5,
     verbose: bool = False,
 ):
+
+    print(f"Running XGBoost training....")
 
     dataset_dir = data_dir
     xgb_data_dir = os.path.join(dataset_dir, "xgb")
@@ -114,8 +113,8 @@ def tran_sg_xgboost(
     if len(param_combinations) > 1:
         print(f"Best hyperparameters {best_params}")
 
-    y_val_pred = (bst.predict(deval) >= 0.5).astype(int)
-    f1_eval_gpu(y_val_pred, deval)
+    y_val_pred = (bst.predict(deval) >= decision_threshold).astype(int)
+    f1_eval_gpu(y_val_pred, deval.get_label())
 
     # Train the final model using the best parameters and best number of boosting rounds
     dtrain = xgb.DMatrix(data=X, label=y)
@@ -129,14 +128,9 @@ def tran_sg_xgboost(
     return bst
 
 
-import torch
-from sklearn.metrics import auc, f1_score, precision_score, recall_score
-
-from cuml.metrics import confusion_matrix, precision_recall_curve, roc_auc_score
-from cuml.metrics.accuracy import accuracy_score
-
-
-def evaluate_on_unseen_data(xgb_model: xgb.Booster, dataset_root: str):
+def evaluate_on_unseen_data(
+    xgb_model: xgb.Booster, dataset_root: str, threshold: float = 0.5
+):
 
     # Load and prepare test data
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -147,33 +141,28 @@ def evaluate_on_unseen_data(xgb_model: xgb.Booster, dataset_root: str):
 
     # Make predictions
     y_pred_prob = xgb_model.predict(dnew)
-    y_pred = (y_pred_prob >= 0.5).astype(int)
-
+    y_pred = (y_pred_prob >= threshold).astype(int)
     y_test = test_df[target_col_name].values
 
     # Accuracy
     accuracy = accuracy_score(y_test, y_pred)
-    print(f"Accuracy: {accuracy:.4f}")
-
-    # ROC AUC Score
-    # r_auc = roc_auc_score(y_test, y_pred_prob)
-    # print(f"ROC AUC Score: {r_auc:.4f}")
-
     y_test = cupy.asnumpy(y_test)
+
     # Precision
     precision = precision_score(y_test, y_pred)
-    print(f"Precision: {precision:.4f}")
 
     # Recall
     recall = recall_score(y_test, y_pred)
-    print(f"Recall: {recall:.4f}")
 
     # F1 Score
     f1 = f1_score(y_test, y_pred)
-    print(f"F1 Score: {f1:.4f}")
-
     # Confusion Matrix
     conf_mat = confusion_matrix(y_test, y_pred)
+
+    print(f"Accuracy: {accuracy:.4f}")
+    print(f"Precision: {precision:.4f}")
+    print(f"Recall: {recall:.4f}")
+    print(f"F1 Score: {f1:.4f}")
     print("Confusion Matrix:")
     print(conf_mat)
 
@@ -213,4 +202,3 @@ def run_sg_xgboost_training(
         output_dir,
         model_file_name=f"{input_config.kind}_{model_index}.json",
     )
-    evaluate_on_unseen_data(xgb_model, data_dir)

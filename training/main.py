@@ -34,7 +34,7 @@ if __name__ == "__main__":
         configuration = load_config(config_file)
 
         # If we reach here, no ValidationError occurred
-        print("Validation of the input training configuration succeeded.")
+        print("The provided training configuration has been successfully validated.")
 
     except (ValueError, ValidationError) as e:
         print("\nValidation error or incorrect format:")
