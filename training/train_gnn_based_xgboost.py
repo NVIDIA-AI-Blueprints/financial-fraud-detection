@@ -2,6 +2,8 @@
 import os
 import sys
 import json
+import pickle
+
 
 from collections import namedtuple
 from typing import List, Tuple, Dict, Union
@@ -317,15 +319,15 @@ def tune_threshold(model, loader, desired_recall=0.90):
         threshold = thresholds[idx[-1]]
 
     # Make predictions with the new threshold
-    preds = (probs > threshold).astype(int)
+    predictions = (probs > threshold).astype(int)
 
     # Recompute metrics
-    final_recall = recall_score(targets, preds)
-    final_precision = precision_score(targets, preds, zero_division=0)
-    final_f1 = f1_score(targets, preds, zero_division=0)
+    final_recall = recall_score(targets, predictions)
+    final_precision = precision_score(targets, predictions, zero_division=0)
+    final_f1 = f1_score(targets, predictions, zero_division=0)
     final_roc_auc = roc_auc_score(targets, probs)
     final_auc_pr = average_precision_score(targets, probs)
-    final_cm = confusion_matrix(targets, preds)
+    final_cm = confusion_matrix(targets, predictions)
 
     print(
         f"\n Need to set the threshold to {threshold:.4f} to achieve "
@@ -369,10 +371,10 @@ def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
 
             batch_size = batch.batch_size
             out = model(batch.x[:, :].to(torch.float32), batch.edge_index)[:batch_size]
-            preds = out.argmax(dim=1)
+            predictions = out.argmax(dim=1)
             y = batch.y[:batch_size].view(-1).to(torch.long)
 
-            all_preds.append(preds.cpu().numpy())
+            all_preds.append(predictions.cpu().numpy())
             all_labels.append(y.cpu().numpy())
             total_pos_seen += (y.cpu().numpy() == 1).sum()
 
@@ -474,7 +476,7 @@ def train_xgboost(
     return bst
 
 
-def evaluate_xgboost(bst, embeddings, labels):
+def evaluate_xgboost(bst, embeddings, labels, decision_threshold=0.5):
     """
     Evaluates the performance of a XGBoost model by calculating different metrics.
 
@@ -499,9 +501,8 @@ def evaluate_xgboost(bst, embeddings, labels):
     dtest = xgb.DMatrix(embeddings_cudf)
 
     # Predict using XGBoost on GPU
-    preds = bst.predict(dtest)
-
-    pred_labels = (preds > 0.5).astype(int)
+    predictions = bst.predict(dtest)
+    pred_labels = (predictions > decision_threshold).astype(int)
 
     # Move labels to CPU for evaluation
     labels_cpu = labels.cpu().numpy()
@@ -511,7 +512,7 @@ def evaluate_xgboost(bst, embeddings, labels):
     precision = precision_score(labels_cpu, pred_labels, zero_division=0)
     recall = recall_score(labels_cpu, pred_labels, zero_division=0)
     f1 = f1_score(labels_cpu, pred_labels, zero_division=0)
-    # roc_auc = roc_auc_score(labels_cpu, preds)
+    # roc_auc = roc_auc_score(labels_cpu, predictions)
     conf_mat = confusion_matrix(labels.cpu().numpy(), pred_labels)
 
     return f1, recall, precision, accuracy, conf_mat
@@ -772,16 +773,16 @@ def generate_gnn_pbtx(
 ):
     # Use an f-string to insert the parameter values into the PBtx content.
     pbtx_content = f"""\
-default_model_filename: \"{model_file_name}\" 
+default_model_filename: "{model_file_name}"
 platform: "onnxruntime_onnx"
 input [                                 
  {{  
-    name: "l_x_"
+    name: "x"
     data_type: TYPE_FP32
     dims: [-1, {input_dim} ]                    
   }},
   {{
-    name: "l_edge_index_"
+    name: "edge_index"
     data_type: TYPE_INT64
     dims: [ 2, -1]
   }}
@@ -804,9 +805,13 @@ instance_group [{{ kind: KIND_GPU }}]
     print(f"Saved embedder model config to {path_to_gnn_pbtx}")
 
 
-def generate_xgb_pbtx(input_dim: int, path_to_xgb_pbtx: str):
+def generate_xgb_pbtx(
+    model_file_name, input_dim: int, decision_threshold: float, path_to_xgb_pbtx: str
+):
     # Use an f-string with escaped braces to insert the variable input dimension.
+    storage_type = "AUTO"
     pbtx_content = f"""\
+default_model_filename: "{model_file_name}"
 backend: "fil"
 input [
  {{
@@ -847,6 +852,8 @@ def create_triton_model_repo(
     output_dir: str,
     gnn_file_name: str,
     xgb_model_file_name: str,
+    decision_threshold: float,
+    model_repository_name: str = "model_repository",
 ):
 
     model.eval()
@@ -869,7 +876,6 @@ def create_triton_model_repo(
     # Prepare the example input as a tuple (or list) matching the model's forward signature
     example_input = (x, edge_index, return_hidden)
 
-    model_repository_name = "model_repository"
     gnn_repository_path = os.path.join(output_dir, model_repository_name, "model")
     xgb_repository_path = os.path.join(output_dir, model_repository_name, "xgboost")
 
@@ -888,13 +894,18 @@ def create_triton_model_repo(
         export_params=True,  # Include model parameters in the ONNX file
         opset_version=11,  # ONNX opset version (11+ supports control flow)
         do_constant_folding=True,  # Perform constant folding for optimization
-        input_names=["l_x_", "l_edge_index_"],
+        input_names=["x", "edge_index"],
         output_names=["output"],  # (Optional) Name for the output tensor
         dynamic_axes={
-            "l_x_": {0: "batch_size"},
-            "l_edge_index_": {1: "num_edges"},
+            "x": {0: "batch_size"},
+            "edge_index": {1: "num_edges"},
         },
     )
+
+    print(
+        f"Saving configs and models for Triton sever in {os.path.join(output_dir, model_repository_name)}"
+    )
+
     print(f"Saved GraphSAGE node embedder model to {path_to_onnx_model}")
 
     xgb_model.save_model(path_to_xgboost_model)
@@ -909,7 +920,10 @@ def create_triton_model_repo(
     )
 
     generate_xgb_pbtx(
-        model.hidden_channels, os.path.join(xgb_repository_path, "config.pbtxt")
+        xgb_model_file_name,
+        model.hidden_channels,
+        decision_threshold,
+        os.path.join(xgb_repository_path, "config.pbtxt"),
     )
 
 
@@ -1260,11 +1274,17 @@ def run_sg_embedding_based_xgboost(
             train_val_ratio=0.8,
             early_stopping=early_stopping,
             validation_metric=best_h_params.metric,
-            embedding_model_name="node_embedder.pth",
-            xgboost_model_name="embedding_based_xgb_model.json",
+            embedding_model_name="graph_sage_node_embedder.pth",
+            xgboost_model_name="xgboost_on_embeddings.json",
             random_state=42,
         )
 
+    # evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
     create_triton_model_repo(
-        embedder_model, xgb_model, output_dir, "gnn_model.onnx", "xgboost.json"
+        embedder_model,
+        xgb_model,
+        output_dir,
+        "graph_sage_node_embedder.onnx",
+        "xgboost_on_embeddings.json",
+        decision_threshold=0.5,
     )
