@@ -1,6 +1,8 @@
 # General-purpose libraries and OS handling
 import os
-import itertools
+import sys
+import json
+
 from collections import namedtuple
 from typing import List, Tuple, Dict, Union
 from enum import Enum
@@ -66,6 +68,27 @@ from sklearn.metrics import (
 
 from torch.utils.dlpack import to_dlpack
 
+GraphSAGEModelConfig = namedtuple(
+    "GraphSAGEModelConfig", ["in_channels", "out_channels"]
+)
+
+
+HyperParams = namedtuple(
+    "HyperParams",
+    [
+        "n_folds",
+        "n_hops",
+        "fan_out",
+        "batch_size",
+        "metric",
+        "learning_rate",
+        "dropout_prob",
+        "hidden_channels",
+        "num_epochs",
+        "weight_decay",
+    ],
+)
+
 
 def set_seed(seed: int):
     random.seed(seed)
@@ -109,6 +132,10 @@ class GraphSAGE(torch.nn.Module):
     ):
         super(GraphSAGE, self).__init__()
 
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.out_channels = out_channels
+
         # list of conv layers
         self.convs = nn.ModuleList()
         # add first conv layer to the list
@@ -121,7 +148,7 @@ class GraphSAGE(torch.nn.Module):
         self.fc = nn.Linear(hidden_channels, out_channels)
         self.dropout_prob = dropout_prob
 
-    def forward(self, x, edge_index, return_hidden=False):
+    def forward(self, x, edge_index, return_hidden: bool = False):
 
         for conv in self.convs:
             x = conv(x, edge_index)
@@ -197,7 +224,7 @@ def extract_embeddings(model, loader) -> Tuple[torch.Tensor, torch.Tensor]:
         for batch in loader:
             batch_size = batch.batch_size
             hidden = model(
-                batch.x[:, :].to(torch.float32), batch.edge_index, return_hidden=True
+                batch.x.to(torch.float32), batch.edge_index, return_hidden=True
             )[:batch_size]
             embeddings.append(hidden)  # Keep embeddings on GPU
             labels.append(batch.y[:batch_size].view(-1).to(torch.long))
@@ -591,28 +618,6 @@ def load_data(
     )
 
 
-GraphSAGEModelConfig = namedtuple(
-    "GraphSAGEModelConfig", ["in_channels", "out_channels"]
-)
-
-
-HyperParams = namedtuple(
-    "HyperParams",
-    [
-        "n_folds",
-        "n_hops",
-        "fan_out",
-        "batch_size",
-        "metric",
-        "learning_rate",
-        "dropout_prob",
-        "hidden_channels",
-        "num_epochs",
-        "weight_decay",
-    ],
-)
-
-
 def k_fold_validation(
     data,
     num_transaction_nodes: int,
@@ -762,6 +767,152 @@ class EarlyStopping:
                     print("Early stopping triggered.")
 
 
+def generate_gnn_pbtx(
+    model_file_name: str, input_dim: int, hidden_dim: int, path_to_gnn_pbtx: str
+):
+    # Use an f-string to insert the parameter values into the PBtx content.
+    pbtx_content = f"""\
+default_model_filename: \"{model_file_name}\" 
+platform: "onnxruntime_onnx"
+input [                                 
+ {{  
+    name: "l_x_"
+    data_type: TYPE_FP32
+    dims: [-1, {input_dim} ]                    
+  }},
+  {{
+    name: "l_edge_index_"
+    data_type: TYPE_INT64
+    dims: [ 2, -1]
+  }}
+]
+output [
+ {{
+    name: "output"
+    data_type: TYPE_FP32
+    dims: [-1, {hidden_dim} ]
+  }}
+]
+instance_group [{{ kind: KIND_GPU }}]
+
+"""
+
+    # Write the content to the specified file.
+    with open(path_to_gnn_pbtx, "w") as file:
+        file.write(pbtx_content)
+
+    print(f"Saved embedder model config to {path_to_gnn_pbtx}")
+
+
+def generate_xgb_pbtx(input_dim: int, path_to_xgb_pbtx: str):
+    # Use an f-string with escaped braces to insert the variable input dimension.
+    pbtx_content = f"""\
+backend: "fil"
+input [
+ {{
+    name: "input__0"
+    data_type: TYPE_FP32
+    dims: [ -1, {input_dim} ]
+ }}
+]
+output [
+ {{
+    name: "output__0"
+    data_type: TYPE_FP32
+    dims: [ -1, 1 ]
+ }}
+]
+instance_group [{{ kind: KIND_GPU }}]
+parameters [
+ {{
+    key: "model_type"
+    value: {{ string_value: "xgboost_json" }}
+ }},
+ {{
+    key: "output_class"
+    value: {{ string_value: "false" }}
+ }}
+]
+"""
+
+    # Write the PBtx content to the specified file.
+    with open(path_to_xgb_pbtx, "w") as file:
+        file.write(pbtx_content)
+    print(f"Saved XGBoost model config to {path_to_xgb_pbtx}")
+
+
+def create_triton_model_repo(
+    model: GraphSAGE,
+    xgb_model: xgb.Booster,
+    output_dir: str,
+    gnn_file_name: str,
+    xgb_model_file_name: str,
+):
+
+    model.eval()
+
+    # Generate random input tensors
+    num_nodes = 64
+    num_features = model.in_channels
+    num_edges = 512
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Random node features: shape [num_nodes, num_features]
+    x = torch.randn(num_nodes, num_features).to(device)
+
+    # Random edge index: shape [2, num_edges], values in [0, num_nodes)
+    edge_index = torch.randint(0, num_nodes, (2, num_edges)).to(device)
+
+    return_hidden = True
+
+    # Prepare the example input as a tuple (or list) matching the model's forward signature
+    example_input = (x, edge_index, return_hidden)
+
+    model_repository_name = "model_repository"
+    gnn_repository_path = os.path.join(output_dir, model_repository_name, "model")
+    xgb_repository_path = os.path.join(output_dir, model_repository_name, "xgboost")
+
+    gnn_model_dir = os.path.join(gnn_repository_path, "1")
+    xgb_model_dir = os.path.join(xgb_repository_path, "1")
+
+    os.makedirs(gnn_model_dir, exist_ok=True)
+    os.makedirs(xgb_model_dir, exist_ok=True)
+    path_to_onnx_model = os.path.join(gnn_model_dir, gnn_file_name)
+    path_to_xgboost_model = os.path.join(xgb_model_dir, xgb_model_file_name)
+
+    torch.onnx.export(
+        model,  # The scripted model with dynamic control flow
+        example_input,  # Example input for tracing the model's graph
+        path_to_onnx_model,
+        export_params=True,  # Include model parameters in the ONNX file
+        opset_version=11,  # ONNX opset version (11+ supports control flow)
+        do_constant_folding=True,  # Perform constant folding for optimization
+        input_names=["l_x_", "l_edge_index_"],
+        output_names=["output"],  # (Optional) Name for the output tensor
+        dynamic_axes={
+            "l_x_": {0: "batch_size"},
+            "l_edge_index_": {1: "num_edges"},
+        },
+    )
+    print(f"Saved GraphSAGE node embedder model to {path_to_onnx_model}")
+
+    xgb_model.save_model(path_to_xgboost_model)
+
+    print(f"Saved XGBoost model to {path_to_xgboost_model}")
+
+    generate_gnn_pbtx(
+        gnn_file_name,
+        model.in_channels,
+        model.hidden_channels,
+        os.path.join(gnn_repository_path, "config.pbtxt"),
+    )
+
+    generate_xgb_pbtx(
+        model.hidden_channels, os.path.join(xgb_repository_path, "config.pbtxt")
+    )
+
+
 def train_with_specific_hyper_params(
     data,
     num_transaction_nodes: int,
@@ -852,10 +1003,6 @@ def train_with_specific_hyper_params(
     # And, save the final model
     if not os.path.exists(dir_to_save_models):
         os.makedirs(dir_to_save_models)
-    path_to_node_embedder = os.path.join(dir_to_save_models, embedding_model_name)
-    torch.save(model, path_to_node_embedder)
-
-    print(f"Saved GraphSAGE node embedder to {path_to_node_embedder}")
 
     # Train the XGBoost model based on embeddings produced by the GraphSAGE model
     data_loader = NeighborLoader(
@@ -975,14 +1122,58 @@ def evaluate_on_unseen_data(
     print("Confusion Matrix:", conf_mat)
 
 
+def read_number_of_transaction_node(dataset_root: str):
+    path_to_gnn_data = os.path.join(dataset_root, "gnn")
+    file_containing_nr_tx_nodes = "info.json"
+    if os.path.exists(path_to_gnn_data):
+        for file_name in [
+            "edges.csv",
+            "labels.csv",
+            "features.csv",
+            file_containing_nr_tx_nodes,
+        ]:
+            if not os.path.exists(os.path.join(path_to_gnn_data, file_name)):
+                sys.exit(f"{file_name} does not exist in {path_to_gnn_data}")
+    else:
+        sys.exit(f"{path_to_gnn_data} does not exist.")
+
+    # Read number of transactions from info.json
+    try:
+        with open(
+            os.path.join(path_to_gnn_data, file_containing_nr_tx_nodes), "r"
+        ) as file:
+            json_data = json.load(file)
+    except FileNotFoundError:
+        print(
+            f"Could not find {file_containing_nr_tx_nodes}. Exiting...",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print(
+            f"Invalid JSON in {file_containing_nr_tx_nodes} . Exiting...",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if "NUM_TRANSACTION_NODES" not in json_data:
+        print(
+            f"Key NUM_TRANSACTION_NODES not found in {file_containing_nr_tx_nodes}. Exiting...",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return json_data["NUM_TRANSACTION_NODES"]
+
+
 def run_sg_embedding_based_xgboost(
     dataset_root: str,
     output_dir: str,
     input_config: Union[GraphSAGEAndXGB, GraphSAGEGridAndXGB],
-    num_transaction_nodes,
     model_index,
 ):
 
+    num_transaction_nodes = read_number_of_transaction_node(dataset_root)
     random_state = 42
     set_seed(random_state)
 
@@ -1017,7 +1208,7 @@ def run_sg_embedding_based_xgboost(
         patience=3,
         verbose=False,
         delta=0.0,
-        path=os.path.join(output_dir, "best_Graph_SAGE_model.pt"),
+        path=os.path.join(output_dir, "saved_checkpoint.pt"),
     )
 
     if isinstance(input_config.hyperparameters, GraphSAGEAndXGBConfig):
@@ -1073,3 +1264,7 @@ def run_sg_embedding_based_xgboost(
             xgboost_model_name="embedding_based_xgb_model.json",
             random_state=42,
         )
+
+    create_triton_model_repo(
+        embedder_model, xgb_model, output_dir, "gnn_model.onnx", "xgboost.json"
+    )

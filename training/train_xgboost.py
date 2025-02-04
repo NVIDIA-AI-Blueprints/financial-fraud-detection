@@ -30,7 +30,7 @@ def f1_eval_gpu(predictions, labels):
 def tran_sg_xgboost(
     param_combinations: List[XGBHyperparametersSingle],
     data_dir: str,
-    output_dir: str,
+    model_dir: str,
     model_file_name: str,
     random_state: int = 42,
     decision_threshold: float = 0.5,
@@ -41,7 +41,6 @@ def tran_sg_xgboost(
 
     dataset_dir = data_dir
     xgb_data_dir = os.path.join(dataset_dir, "xgb")
-    models_dir = output_dir
 
     train_data_path = os.path.join(xgb_data_dir, "training.csv")
 
@@ -120,12 +119,11 @@ def tran_sg_xgboost(
     dtrain = xgb.DMatrix(data=X, label=y)
     final_model = xgb.train(best_params, dtrain, num_boost_round=best_num_boost_round)
 
-    # Save the best model
-    if not os.path.exists(models_dir):
-        os.makedirs(models_dir)
-    final_model.save_model(os.path.join(models_dir, model_file_name))
-    print(f"Saved XGBoost model to {os.path.join(models_dir, model_file_name)}")
-    return bst
+    # Save the model
+    os.makedirs(model_dir, exist_ok=True)
+    final_model.save_model(os.path.join(model_dir, model_file_name))
+    print(f"Saved XGBoost model to {os.path.join(model_dir, model_file_name)}")
+    return final_model
 
 
 def evaluate_on_unseen_data(
@@ -169,7 +167,7 @@ def evaluate_on_unseen_data(
 
 def run_sg_xgboost_training(
     data_dir: str,
-    output_dir: str,
+    model_dir: str,
     input_config: Union[XGBSingleConfig, XGBListConfig],
     model_index: int,
 ) -> None:
@@ -199,6 +197,6 @@ def run_sg_xgboost_training(
     xgb_model = tran_sg_xgboost(
         hyperparameter_list,
         data_dir,
-        output_dir,
+        model_dir,
         model_file_name=f"{input_config.kind}_{model_index}.json",
     )
