@@ -1,17 +1,23 @@
-# ## Train a GNN-based XGBoost Model
-# #### Goals
-# * Train a GNN (GraphSAGE) model that produces node (transaction) embeddings.
-# * Use these node embeddings to train an XGBoost model.
-# * Save the trained GNN and XGBoost models for inference.
-#
-
 # General-purpose libraries and OS handling
 import os
-import itertools
+import sys
+import json
+import pickle
+
+
 from collections import namedtuple
 from typing import List, Tuple, Dict, Union
+from enum import Enum
 
-from config_schema import GraphSAGEHyperparametersSingle, GraphSAGEHyperparametersList, GraphSAGESingleConfig, GraphSAGEListConfig
+from config_schema import (
+    GraphSAGEHyperparametersSingle,
+    GraphSAGEHyperparametersList,
+    GraphSAGEAndXGB,
+    GraphSAGEGridAndXGB,
+    GraphSAGEAndXGBConfig,
+    GraphSAGEGridAndXGBConfig,
+    XGBHyperparametersSingle,
+)
 
 # GPU-accelerated libraries (torch, cupy, cudf, rmm)
 import torch
@@ -51,16 +57,39 @@ import cupy as cp
 import numpy as np
 import random
 
-# Machine learning metrics from sklearn
 from sklearn.metrics import (
     accuracy_score,
-    precision_score,
     recall_score,
+    precision_score,
     f1_score,
-    roc_auc_score
+    roc_auc_score,
+    average_precision_score,
+    confusion_matrix,
+    precision_recall_curve,
 )
 
 from torch.utils.dlpack import to_dlpack
+
+GraphSAGEModelConfig = namedtuple(
+    "GraphSAGEModelConfig", ["in_channels", "out_channels"]
+)
+
+
+HyperParams = namedtuple(
+    "HyperParams",
+    [
+        "n_folds",
+        "n_hops",
+        "fan_out",
+        "batch_size",
+        "metric",
+        "learning_rate",
+        "dropout_prob",
+        "hidden_channels",
+        "num_epochs",
+        "weight_decay",
+    ],
+)
 
 
 def set_seed(seed: int):
@@ -105,6 +134,10 @@ class GraphSAGE(torch.nn.Module):
     ):
         super(GraphSAGE, self).__init__()
 
+        self.in_channels = in_channels
+        self.hidden_channels = hidden_channels
+        self.out_channels = out_channels
+
         # list of conv layers
         self.convs = nn.ModuleList()
         # add first conv layer to the list
@@ -117,7 +150,7 @@ class GraphSAGE(torch.nn.Module):
         self.fc = nn.Linear(hidden_channels, out_channels)
         self.dropout_prob = dropout_prob
 
-    def forward(self, x, edge_index, return_hidden=False):
+    def forward(self, x, edge_index, return_hidden: bool = False):
 
         for conv in self.convs:
             x = conv(x, edge_index)
@@ -193,7 +226,7 @@ def extract_embeddings(model, loader) -> Tuple[torch.Tensor, torch.Tensor]:
         for batch in loader:
             batch_size = batch.batch_size
             hidden = model(
-                batch.x[:, :].to(torch.float32), batch.edge_index, return_hidden=True
+                batch.x.to(torch.float32), batch.edge_index, return_hidden=True
             )[:batch_size]
             embeddings.append(hidden)  # Keep embeddings on GPU
             labels.append(batch.y[:batch_size].view(-1).to(torch.long))
@@ -202,12 +235,115 @@ def extract_embeddings(model, loader) -> Tuple[torch.Tensor, torch.Tensor]:
     return embeddings, labels
 
 
-
-from enum import Enum
 class Metric(Enum):
-    RECALL = 'recall'
-    F1 = 'f1'
-    PRECISION = 'precision'
+    RECALL = "recall"
+    F1 = "f1"
+    PRECISION = "precision"
+
+
+def maximize_f1(model, loader):
+    model.eval()
+    probs = []
+    targets = []
+    with torch.no_grad():
+        for batch in loader:
+
+            batch_size = batch.batch_size
+            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
+            pred_probs = torch.softmax(out, dim=1)[:, 1]
+            y = batch.y[:batch_size].view(-1).to(torch.long)
+            probs.append(pred_probs.cpu())
+            targets.append(y.cpu())
+    probs = torch.cat(probs).numpy()
+    targets = torch.cat(targets).numpy()
+
+    precision, recall, thresholds = precision_recall_curve(targets, probs)
+
+    # Compute F1 Score for Each Threshold
+    f1_scores = []
+    for threshold in thresholds:
+        # Convert probabilities to binary predictions based on the current threshold
+        y_pred = (probs >= threshold).astype(int)
+        # Compute the F1 score for these predictions
+        f1 = f1_score(targets, y_pred)
+        f1_scores.append(f1)
+
+    f1_scores = np.array(f1_scores)
+
+    # Select the Best Threshold (that maximizes the F1 score)
+    best_index = np.argmax(f1_scores)
+    best_threshold = thresholds[best_index]
+    best_f1 = f1_scores[best_index]
+    return best_threshold, best_f1
+
+
+def tune_threshold(model, loader, desired_recall=0.90):
+    """
+    Evaluates the performance of the GraphSAGE model.
+
+    Parameters:
+    ----------
+    model : torch.nn.Module
+        The GNN model to be evaluated.
+    loader : cugraph_pyg.loader.NeighborLoader
+        NeighborLoader that provides batches of data for evaluation.
+
+    Returns:
+    -------
+    float
+        The average f1-score computed over all batches.
+    """
+
+    model.eval()
+    probs = []
+    targets = []
+    with torch.no_grad():
+        for batch in loader:
+
+            batch_size = batch.batch_size
+            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
+            pred_probs = torch.softmax(out, dim=1)[:, 1]
+            y = batch.y[:batch_size].view(-1).to(torch.long)
+            probs.append(pred_probs.cpu())
+            targets.append(y.cpu())
+    probs = torch.cat(probs).numpy()
+    targets = torch.cat(targets).numpy()
+
+    precision_vals, recall_vals, thresholds = precision_recall_curve(targets, probs)
+
+    # Find the threshold closest to the desired recall
+    idx = np.where(recall_vals >= desired_recall)[0]
+    if len(idx) == 0:
+        threshold = 0.5  # Default threshold if desired recall not achievable
+    else:
+        threshold = thresholds[idx[-1]]
+
+    # Make predictions with the new threshold
+    predictions = (probs > threshold).astype(int)
+
+    # Recompute metrics
+    final_recall = recall_score(targets, predictions)
+    final_precision = precision_score(targets, predictions, zero_division=0)
+    final_f1 = f1_score(targets, predictions, zero_division=0)
+    final_roc_auc = roc_auc_score(targets, probs)
+    final_auc_pr = average_precision_score(targets, probs)
+    final_cm = confusion_matrix(targets, predictions)
+
+    print(
+        f"\n Need to set the threshold to {threshold:.4f} to achieve "
+        f"recall of {desired_recall} where the precision would be {final_precision}."
+    )
+
+    return {
+        "threshold": threshold,
+        "recall": final_recall,
+        "precision": final_precision,
+        "f1_score": final_f1,
+        "roc_auc": final_roc_auc,
+        "auc_pr": final_auc_pr,
+        "confusion_matrix": final_cm,
+    }
+
 
 def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
     """
@@ -235,10 +371,10 @@ def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
 
             batch_size = batch.batch_size
             out = model(batch.x[:, :].to(torch.float32), batch.edge_index)[:batch_size]
-            preds = out.argmax(dim=1)
+            predictions = out.argmax(dim=1)
             y = batch.y[:batch_size].view(-1).to(torch.long)
 
-            all_preds.append(preds.cpu().numpy())
+            all_preds.append(predictions.cpu().numpy())
             all_labels.append(y.cpu().numpy())
             total_pos_seen += (y.cpu().numpy() == 1).sum()
 
@@ -256,7 +392,7 @@ def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
         return recall_score(all_labels, all_preds, zero_division=0)
     elif metric == Metric.F1.value:
         return f1_score(all_labels, all_preds, zero_division=0)
-    
+
 
 def validation_loss(model, loader, criterion) -> float:
     """
@@ -290,7 +426,12 @@ def validation_loss(model, loader, criterion) -> float:
     return total_loss / batch_count
 
 
-def train_xgboost(embeddings, labels) -> xgb.Booster:
+def train_xgboost(
+    embeddings,
+    labels,
+    hyper_params_xgb: XGBHyperparametersSingle,
+    random_state: int = 42,
+) -> xgb.Booster:
     """
     Trains an XGBoost classifier on the provided embeddings and labels.
 
@@ -311,27 +452,31 @@ def train_xgboost(embeddings, labels) -> xgb.Booster:
     labels_cudf = cudf.Series(cp.from_dlpack(to_dlpack(labels)))
     embeddings_cudf = cudf.DataFrame(cp.from_dlpack(to_dlpack(embeddings)))
 
+    assert isinstance(hyper_params_xgb, XGBHyperparametersSingle)
+
     # Convert data to DMatrix format for XGBoost on GPU
     dtrain = xgb.DMatrix(embeddings_cudf, label=labels_cudf)
 
     # Set XGBoost parameters for GPU usage
     param = {
-        "max_depth": 6,
-        "learning_rate": 0.2,
-        "objective": "binary:logistic",
+        "max_depth": hyper_params_xgb.max_depth,
+        "learning_rate": hyper_params_xgb.learning_rate,
+        "gamma": hyper_params_xgb.gamma,
+        "num_parallel_tree": hyper_params_xgb.num_parallel_tree,
         "eval_metric": "logloss",
-        # 'eval_metric': 'aucpr',
+        "objective": "binary:logistic",
         "tree_method": "hist",
         "device": "cuda",
+        "seed": random_state,
     }
 
     # Train the XGBoost model
-    bst = xgb.train(param, dtrain, num_boost_round=100)
+    bst = xgb.train(param, dtrain, num_boost_round=hyper_params_xgb.num_boost_round)
 
     return bst
 
 
-def evaluate_xgboost(bst, embeddings, labels):
+def evaluate_xgboost(bst, embeddings, labels, decision_threshold=0.5):
     """
     Evaluates the performance of a XGBoost model by calculating different metrics.
 
@@ -356,9 +501,8 @@ def evaluate_xgboost(bst, embeddings, labels):
     dtest = xgb.DMatrix(embeddings_cudf)
 
     # Predict using XGBoost on GPU
-    preds = bst.predict(dtest)
-
-    pred_labels = (preds > 0.5).astype(int)
+    predictions = bst.predict(dtest)
+    pred_labels = (predictions > decision_threshold).astype(int)
 
     # Move labels to CPU for evaluation
     labels_cpu = labels.cpu().numpy()
@@ -368,7 +512,7 @@ def evaluate_xgboost(bst, embeddings, labels):
     precision = precision_score(labels_cpu, pred_labels, zero_division=0)
     recall = recall_score(labels_cpu, pred_labels, zero_division=0)
     f1 = f1_score(labels_cpu, pred_labels, zero_division=0)
-    # roc_auc = roc_auc_score(labels_cpu, preds)
+    # roc_auc = roc_auc_score(labels_cpu, predictions)
     conf_mat = confusion_matrix(labels.cpu().numpy(), pred_labels)
 
     return f1, recall, precision, accuracy, conf_mat
@@ -460,8 +604,8 @@ def load_data(
     x_feature_tensor = torch.stack(col_tensors).T
 
     feature_store = cugraph_pyg.data.TensorDictFeatureStore()
-    feature_store["node", "x"] = x_feature_tensor
-    feature_store["node", "y"] = y_label_tensor
+    feature_store["node", "x", None] = x_feature_tensor
+    feature_store["node", "y", None] = y_label_tensor
 
     num_features = len(feature_columns)
 
@@ -475,28 +619,6 @@ def load_data(
     )
 
 
-GraphSAGEModelConfig = namedtuple(
-    "GraphSAGEModelConfig", ["in_channels", "out_channels"]
-)
-
-
-HyperParams = namedtuple(
-    "HyperParams",
-    [
-        "n_folds",
-        "n_hops",
-        "fan_out",
-        "batch_size",
-        "metric",
-        "learning_rate",
-        "dropout_prob",
-        "hidden_channels",
-        "num_epochs",
-        "weight_decay",
-    ],
-)
-
-
 def k_fold_validation(
     data,
     num_transaction_nodes: int,
@@ -505,7 +627,7 @@ def k_fold_validation(
     loss_function,
     early_stopping,
     random_state=42,
-    verbose=False
+    verbose=False,
 ):
     """
     Run k-fold cross validation.
@@ -536,7 +658,7 @@ def k_fold_validation(
             batch_size=h_params.batch_size,
             input_nodes=training_nodes,
             shuffle=True,
-            random_state=random_state
+            random_state=random_state,
         )
 
         # Use same graph but different seed nodes
@@ -546,7 +668,7 @@ def k_fold_validation(
             batch_size=h_params.batch_size,
             input_nodes=validation_nodes,
             shuffle=False,
-            random_state=random_state
+            random_state=random_state,
         )
 
         device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -564,7 +686,8 @@ def k_fold_validation(
             patience=early_stopping.patience,
             path=early_stopping.path,
             verbose=verbose,
-            delta=early_stopping.delta)
+            delta=early_stopping.delta,
+        )
 
         # Optimizer
         optimizer = torch.optim.Adam(
@@ -579,21 +702,23 @@ def k_fold_validation(
             metric_value = evaluate_gnn(model, val_loader, metric=h_params.metric)
 
             if verbose:
-                print(f"Epoch {epoch}, training loss : {train_loss}, validation {h_params.metric} : {metric_value}")
+                print(
+                    f"Epoch {epoch}, training loss : {train_loss}, validation {h_params.metric} : {metric_value}"
+                )
             if check:
                 check(metric_value, model)
                 if check.early_stop:
                     if verbose:
-                        print(f'Early stopping at epoch {epoch}')
+                        print(f"Early stopping at epoch {epoch}")
                     break
 
         if check:
             # Load the Best Model
             model.load_state_dict(torch.load(check.path, weights_only=True))
-        
+
         metric_value = evaluate_gnn(model, val_loader, metric=h_params.metric)
         metric_scores.append(metric_value)
-        
+
     return np.mean(metric_scores)
 
 
@@ -601,7 +726,8 @@ class EarlyStopping:
     """
     Early stops the training if validation recall doesn't improve after a given patience.
     """
-    def __init__(self, patience=10, verbose=False, delta=0.0, path='best_model.pt'):
+
+    def __init__(self, patience=10, verbose=False, delta=0.0, path="best_model.pt"):
         """
         Args:
             patience (int): How long to wait after last time validation recall improved.
@@ -628,76 +754,256 @@ class EarlyStopping:
             self.counter = 0
             self.best_model_state = model.state_dict()
             if self.verbose:
-                print(f'Validation recall increased to {self.best_recall:.4f}. Saving model.')
+                print(
+                    f"Validation recall increased to {self.best_recall:.4f}. Saving model."
+                )
             torch.save(model.state_dict(), self.path)
         else:
             self.counter += 1
             if self.verbose:
-                print(f'No improvement in validation recall for {self.counter} epochs.')
+                print(f"No improvement in validation recall for {self.counter} epochs.")
             if self.counter >= self.patience:
                 self.early_stop = True
                 if self.verbose:
-                    print('Early stopping triggered.')
+                    print("Early stopping triggered.")
 
 
+def generate_gnn_pbtx(
+    model_file_name: str, input_dim: int, hidden_dim: int, path_to_gnn_pbtx: str
+):
+    # Use an f-string to insert the parameter values into the PBtx content.
+    pbtx_content = f"""\
+default_model_filename: "{model_file_name}"
+platform: "onnxruntime_onnx"
+input [                                 
+ {{  
+    name: "x"
+    data_type: TYPE_FP32
+    dims: [-1, {input_dim} ]                    
+  }},
+  {{
+    name: "edge_index"
+    data_type: TYPE_INT64
+    dims: [ 2, -1]
+  }}
+]
+output [
+ {{
+    name: "output"
+    data_type: TYPE_FP32
+    dims: [-1, {hidden_dim} ]
+  }}
+]
+instance_group [{{ kind: KIND_GPU }}]
 
-def train_on_specified_params(data, num_transaction_nodes, model_config,
-                              hyper_params, loss_function, dir_to_save_models,
-                              train_val_ratio= 0.8, early_stopping=None,
-                              validation_metric=Metric.RECALL.value,
-                              embedding_model_name='node_embedder.pth',
-                              xgboost_model_name='embedding_based_xgb_model.json',
-                              random_state=42,
-                              verbose=True
-                              )->Tuple[GraphSAGE, xgb.Booster]:
-    
+"""
+
+    # Write the content to the specified file.
+    with open(path_to_gnn_pbtx, "w") as file:
+        file.write(pbtx_content)
+
+    print(f"Saved embedder model config to {path_to_gnn_pbtx}")
+
+
+def generate_xgb_pbtx(
+    model_file_name, input_dim: int, decision_threshold: float, path_to_xgb_pbtx: str
+):
+    # Use an f-string with escaped braces to insert the variable input dimension.
+    storage_type = "AUTO"
+    pbtx_content = f"""\
+default_model_filename: "{model_file_name}"
+backend: "fil"
+input [
+ {{
+    name: "input__0"
+    data_type: TYPE_FP32
+    dims: [ -1, {input_dim} ]
+ }}
+]
+output [
+ {{
+    name: "output__0"
+    data_type: TYPE_FP32
+    dims: [ -1, 1 ]
+ }}
+]
+instance_group [{{ kind: KIND_GPU }}]
+parameters [
+ {{
+    key: "model_type"
+    value: {{ string_value: "xgboost_json" }}
+ }},
+ {{
+    key: "output_class"
+    value: {{ string_value: "false" }}
+ }}
+]
+"""
+
+    # Write the PBtx content to the specified file.
+    with open(path_to_xgb_pbtx, "w") as file:
+        file.write(pbtx_content)
+    print(f"Saved XGBoost model config to {path_to_xgb_pbtx}")
+
+
+def create_triton_model_repo(
+    model: GraphSAGE,
+    xgb_model: xgb.Booster,
+    output_dir: str,
+    gnn_file_name: str,
+    xgb_model_file_name: str,
+    decision_threshold: float,
+    model_repository_name: str = "model_repository",
+):
+
+    model.eval()
+
+    # Generate random input tensors
+    num_nodes = 64
+    num_features = model.in_channels
+    num_edges = 512
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    # Random node features: shape [num_nodes, num_features]
+    x = torch.randn(num_nodes, num_features).to(device)
+
+    # Random edge index: shape [2, num_edges], values in [0, num_nodes)
+    edge_index = torch.randint(0, num_nodes, (2, num_edges)).to(device)
+
+    return_hidden = True
+
+    # Prepare the example input as a tuple (or list) matching the model's forward signature
+    example_input = (x, edge_index, return_hidden)
+
+    gnn_repository_path = os.path.join(output_dir, model_repository_name, "model")
+    xgb_repository_path = os.path.join(output_dir, model_repository_name, "xgboost")
+
+    gnn_model_dir = os.path.join(gnn_repository_path, "1")
+    xgb_model_dir = os.path.join(xgb_repository_path, "1")
+
+    os.makedirs(gnn_model_dir, exist_ok=True)
+    os.makedirs(xgb_model_dir, exist_ok=True)
+    path_to_onnx_model = os.path.join(gnn_model_dir, gnn_file_name)
+    path_to_xgboost_model = os.path.join(xgb_model_dir, xgb_model_file_name)
+
+    torch.onnx.export(
+        model,  # The scripted model with dynamic control flow
+        example_input,  # Example input for tracing the model's graph
+        path_to_onnx_model,
+        export_params=True,  # Include model parameters in the ONNX file
+        opset_version=11,  # ONNX opset version (11+ supports control flow)
+        do_constant_folding=True,  # Perform constant folding for optimization
+        input_names=["x", "edge_index"],
+        output_names=["output"],  # (Optional) Name for the output tensor
+        dynamic_axes={
+            "x": {0: "batch_size"},
+            "edge_index": {1: "num_edges"},
+        },
+    )
+
+    print(
+        f"Saving configs and models for Triton sever in {os.path.join(output_dir, model_repository_name)}"
+    )
+
+    print(f"Saved GraphSAGE node embedder model to {path_to_onnx_model}")
+
+    xgb_model.save_model(path_to_xgboost_model)
+
+    print(f"Saved XGBoost model to {path_to_xgboost_model}")
+
+    generate_gnn_pbtx(
+        gnn_file_name,
+        model.in_channels,
+        model.hidden_channels,
+        os.path.join(gnn_repository_path, "config.pbtxt"),
+    )
+
+    generate_xgb_pbtx(
+        xgb_model_file_name,
+        model.hidden_channels,
+        decision_threshold,
+        os.path.join(xgb_repository_path, "config.pbtxt"),
+    )
+
+
+def train_with_specific_hyper_params(
+    data,
+    num_transaction_nodes: int,
+    model_config: GraphSAGEModelConfig,
+    hyper_params_gnn: GraphSAGEHyperparametersSingle,
+    hyper_params_xgb: XGBHyperparametersSingle,
+    loss_function,
+    dir_to_save_models: str,
+    train_val_ratio: float = 0.8,
+    early_stopping: EarlyStopping = None,
+    validation_metric=Metric.RECALL.value,
+    embedding_model_name: str = "node_embedder.pth",
+    xgboost_model_name: str = "embedding_based_xgb_model.json",
+    random_state: int = 42,
+    verbose: bool = False,
+) -> Tuple[GraphSAGE, xgb.Booster]:
+
+    print(f"Running GraphSAGE based XGBoost training....")
+
     # Set the device to GPU if available; otherwise, default to CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Define the model
     model = GraphSAGE(
         in_channels=model_config.in_channels,
-        hidden_channels=hyper_params.hidden_channels,
+        hidden_channels=hyper_params_gnn.hidden_channels,
         out_channels=model_config.out_channels,
-        n_hops=hyper_params.n_hops,
-        dropout_prob=hyper_params.dropout_prob,
+        n_hops=hyper_params_gnn.n_hops,
+        dropout_prob=hyper_params_gnn.dropout_prob,
     ).to(device)
+
+    num_training_tx = int(train_val_ratio * num_transaction_nodes)
+    tx_nodes_perm = torch.randperm(num_transaction_nodes)
+    train_txs = tx_nodes_perm[:num_training_tx]
+    val_txs = tx_nodes_perm[num_training_tx:num_transaction_nodes]
 
     train_loader = NeighborLoader(
         data,
-        num_neighbors=[hyper_params.fan_out, hyper_params.fan_out],
-        batch_size=hyper_params.batch_size,
-        input_nodes=torch.arange(int(train_val_ratio * num_transaction_nodes)),
+        num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
+        batch_size=hyper_params_gnn.batch_size,
+        input_nodes=train_txs,
+        # input_nodes=torch.arange(int(train_val_ratio * num_transaction_nodes)),
         shuffle=True,
         random_state=random_state,
     )
 
     val_loader = NeighborLoader(
         data,
-        num_neighbors=[hyper_params.fan_out, hyper_params.fan_out],
-        batch_size=hyper_params.batch_size,
-        input_nodes=torch.arange(int(train_val_ratio * num_transaction_nodes), num_transaction_nodes),
+        num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
+        batch_size=hyper_params_gnn.batch_size,
+        input_nodes=val_txs,
+        # input_nodes=torch.arange(
+        #     int(train_val_ratio * num_transaction_nodes), num_transaction_nodes
+        # ),
         shuffle=False,
         random_state=random_state,
     )
 
     optimizer = torch.optim.Adam(
         model.parameters(),
-        lr=hyper_params.learning_rate,
-        weight_decay=hyper_params.weight_decay,
+        lr=hyper_params_gnn.learning_rate,
+        weight_decay=hyper_params_gnn.weight_decay,
     )
 
-
-    for epoch in range(hyper_params.num_epochs):
+    for epoch in range(hyper_params_gnn.num_epochs):
         train_loss = train_gnn(model, train_loader, optimizer, loss_function)
         metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
 
         if verbose:
-            print(f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric} : {metric_value}")
+            print(
+                f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric} : {metric_value}"
+            )
         if early_stopping:
             early_stopping(metric_value, model)
             if early_stopping.early_stop:
-                print(f'Early stopping at epoch {epoch}')
+                if verbose:
+                    print(f"Early stopping at epoch {epoch}")
                 break
 
     if early_stopping:
@@ -705,20 +1011,18 @@ def train_on_specified_params(data, num_transaction_nodes, model_config,
         model.load_state_dict(torch.load(early_stopping.path, weights_only=True))
 
     # Finally train on validation data well
-    for epoch in range(hyper_params.num_epochs):
+    for epoch in range(hyper_params_gnn.num_epochs):
         train_loss = train_gnn(model, val_loader, optimizer, loss_function)
-    
+
     # And, save the final model
     if not os.path.exists(dir_to_save_models):
         os.makedirs(dir_to_save_models)
-        torch.save(model, os.path.join(dir_to_save_models, embedding_model_name))
 
-    
     # Train the XGBoost model based on embeddings produced by the GraphSAGE model
     data_loader = NeighborLoader(
         data,
-        num_neighbors=[hyper_params.fan_out, hyper_params.fan_out],
-        batch_size=hyper_params.batch_size,
+        num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
+        batch_size=hyper_params_gnn.batch_size,
         input_nodes=torch.arange(num_transaction_nodes),
         shuffle=True,
         random_state=random_state,
@@ -727,24 +1031,28 @@ def train_on_specified_params(data, num_transaction_nodes, model_config,
     # Extract embeddings from the second-to-last layer and keep them on GPU
     embeddings, labels = extract_embeddings(model, data_loader)
 
-
     # Train an XGBoost model on the extracted embeddings (on GPU)
-    bst = train_xgboost(embeddings.to(device), labels.to(device))
+    bst = train_xgboost(embeddings.to(device), labels.to(device), hyper_params_xgb)
 
     xgb_model_path = os.path.join(dir_to_save_models, xgboost_model_name)
 
     if not os.path.exists(os.path.dirname(xgb_model_path)):
         os.makedirs(os.path.dirname(xgb_model_path))
-
     bst.save_model(xgb_model_path)
 
+    print(f"Saved GraphSAGE based XGBoost model to {xgb_model_path}")
     return model, bst
-    
+
 
 def find_best_params(
-        data, num_transaction_nodes:int, model_config: GraphSAGEModelConfig,
-        params: GraphSAGEHyperparametersList, loss_function, early_stopping,
-        random_state:int=42)->HyperParams:
+    data,
+    num_transaction_nodes: int,
+    model_config: GraphSAGEModelConfig,
+    params: GraphSAGEHyperparametersList,
+    loss_function,
+    early_stopping,
+    random_state: int = 42,
+) -> HyperParams:
 
     # Hyperparameter grid
     from sklearn.model_selection import ParameterGrid
@@ -759,9 +1067,8 @@ def find_best_params(
         "dropout_prob": params.dropout_prob,
         "hidden_channels": params.hidden_channels,
         "num_epochs": params.num_epochs,
-        "weight_decay": params.weight_decay
+        "weight_decay": params.weight_decay,
     }
-
 
     grid = list(ParameterGrid(param_grid))
 
@@ -770,12 +1077,14 @@ def find_best_params(
     best_metric_value = -float("inf")
     best_h_params = grid[0]
 
-    print('-----------Running cross-validation to find best set of hyperparameters---------')
+    print(
+        "-----------Running cross-validation to find best set of hyperparameters---------"
+    )
 
     for param_dict in grid:
         h_params = HyperParams(**param_dict)
 
-        metric_value= k_fold_validation(
+        metric_value = k_fold_validation(
             data,
             num_transaction_nodes,
             model_config,
@@ -793,11 +1102,10 @@ def find_best_params(
     return best_h_params
 
 
+def evaluate_on_unseen_data(
+    embedder_model: GraphSAGE, xgb_model: xgb.Booster, dataset_root: str
+):
 
-def evaluate_on_unseen_data(embedder_model: GraphSAGE,
-                            xgb_model: xgb.Booster,
-                            dataset_root: str):
-    
     # Load and prepare test data
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     test_path = os.path.join(dataset_root, "xgb/test.csv")
@@ -825,76 +1133,130 @@ def evaluate_on_unseen_data(embedder_model: GraphSAGE,
     print(f"Precision: {precision:.4f}")
     print(f"Recall: {recall:.4f}")
     print(f"F1 Score: {f1:.4f}")
-    print("Confusion Matrix:", conf_mat)    
+    print("Confusion Matrix:", conf_mat)
+
+
+def read_number_of_transaction_node(dataset_root: str):
+    path_to_gnn_data = os.path.join(dataset_root, "gnn")
+    file_containing_nr_tx_nodes = "info.json"
+    if os.path.exists(path_to_gnn_data):
+        for file_name in [
+            "edges.csv",
+            "labels.csv",
+            "features.csv",
+            file_containing_nr_tx_nodes,
+        ]:
+            if not os.path.exists(os.path.join(path_to_gnn_data, file_name)):
+                sys.exit(f"{file_name} does not exist in {path_to_gnn_data}")
+    else:
+        sys.exit(f"{path_to_gnn_data} does not exist.")
+
+    # Read number of transactions from info.json
+    try:
+        with open(
+            os.path.join(path_to_gnn_data, file_containing_nr_tx_nodes), "r"
+        ) as file:
+            json_data = json.load(file)
+    except FileNotFoundError:
+        print(
+            f"Could not find {file_containing_nr_tx_nodes}. Exiting...",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+    except json.JSONDecodeError:
+        print(
+            f"Invalid JSON in {file_containing_nr_tx_nodes} . Exiting...",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    if "NUM_TRANSACTION_NODES" not in json_data:
+        print(
+            f"Key NUM_TRANSACTION_NODES not found in {file_containing_nr_tx_nodes}. Exiting...",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
+    return json_data["NUM_TRANSACTION_NODES"]
 
 
 def run_sg_embedding_based_xgboost(
-        dataset_root: str,
-        output_dir: str,
-        input_config: Union[GraphSAGESingleConfig, GraphSAGEListConfig],
-        num_transaction_nodes,
-        model_index):
+    dataset_root: str,
+    output_dir: str,
+    input_config: Union[GraphSAGEAndXGB, GraphSAGEGridAndXGB],
+    model_index,
+):
 
+    num_transaction_nodes = read_number_of_transaction_node(dataset_root)
     random_state = 42
     set_seed(random_state)
-    
-    assert (
-        isinstance(input_config.hyperparameters, GraphSAGEHyperparametersList)
-        or
-        isinstance(input_config.hyperparameters, GraphSAGEHyperparametersSingle)
-        )
-    
+
+    assert isinstance(
+        input_config.hyperparameters, GraphSAGEGridAndXGBConfig
+    ) or isinstance(input_config.hyperparameters, GraphSAGEAndXGBConfig)
+
     path_to_gnn_data = os.path.join(dataset_root, "gnn")
     use_cross_weights = True
-    
+
     # Create graph and read node features
     data, ef_store, num_nodes, num_features, num_classes, cross_wt_data = load_data(
-        path_to_gnn_data, use_cross_weights=use_cross_weights)
-    
+        path_to_gnn_data, use_cross_weights=use_cross_weights
+    )
+
     model_config = GraphSAGEModelConfig(
         in_channels=num_features, out_channels=num_classes
     )
-    
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # TODO: Consider exposing loss_function and early_stopping as well
-    
+
     if use_cross_weights:
-        loss_function = torch.nn.CrossEntropyLoss(
-            weight=cross_wt_data
-        ).to(device)
+        loss_function = torch.nn.CrossEntropyLoss(weight=cross_wt_data).to(device)
     else:
         loss_function = torch.nn.CrossEntropyLoss(
             weight=torch.tensor([0.05, 0.95], dtype=torch.float32)
         ).to(device)
-    
 
     early_stopping = EarlyStopping(
-        patience=3, verbose=True, delta=0.0,
-        path= os.path.join(output_dir, 'best_Graph_SAGE_model.pt'))
+        patience=3,
+        verbose=False,
+        delta=0.0,
+        path=os.path.join(output_dir, "saved_checkpoint.pt"),
+    )
 
-    if isinstance(input_config.hyperparameters, GraphSAGEHyperparametersSingle):
-        embedder_model, xgb_model =  train_on_specified_params(
-            data, num_transaction_nodes, model_config,
-            input_config.hyperparameters, loss_function,
-            output_dir, train_val_ratio=0.8,
+    if isinstance(input_config.hyperparameters, GraphSAGEAndXGBConfig):
+        embedder_model, xgb_model = train_with_specific_hyper_params(
+            data,
+            num_transaction_nodes,
+            model_config,
+            input_config.hyperparameters.gnn,
+            input_config.hyperparameters.xgb,
+            loss_function,
+            output_dir,
+            train_val_ratio=0.8,
             early_stopping=early_stopping,
-            validation_metric=input_config.hyperparameters.metric,
-            embedding_model_name=f'node_embedder_{model_index}.pth',
-            xgboost_model_name=f'embedding_based_xgb_model_{model_index}.json',
-            random_state=42)
+            validation_metric=input_config.hyperparameters.gnn.metric,
+            embedding_model_name=f"node_embedder_{model_index}.pth",
+            xgboost_model_name=f"embedding_based_xgb_model_{model_index}.json",
+            random_state=42,
+        )
 
-        evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
-    
-    elif isinstance(input_config.hyperparameters, GraphSAGEHyperparametersList):
+    elif isinstance(input_config.hyperparameters, GraphSAGEGridAndXGBConfig):
+        best_h_params = find_best_params(
+            data,
+            num_transaction_nodes,
+            model_config,
+            input_config.hyperparameters.gnn,
+            loss_function,
+            early_stopping,
+            random_state=random_state,
+        )
 
-        assert(isinstance(input_config.hyperparameters.metric, List))
-        best_h_params = find_best_params(data, num_transaction_nodes, model_config,
-                         input_config.hyperparameters, loss_function,
-                         early_stopping, random_state=random_state)
-
-        embedder_model, xgb_model =  train_on_specified_params(
-            data, num_transaction_nodes, model_config,
+        embedder_model, xgb_model = train_with_specific_hyper_params(
+            data,
+            num_transaction_nodes,
+            model_config,
             GraphSAGEHyperparametersSingle(
                 hidden_channels=best_h_params.hidden_channels,
                 n_hops=best_h_params.n_hops,
@@ -904,13 +1266,25 @@ def run_sg_embedding_based_xgboost(
                 metric=best_h_params.metric,
                 num_epochs=best_h_params.num_epochs,
                 learning_rate=best_h_params.learning_rate,
-                weight_decay=best_h_params.weight_decay),
+                weight_decay=best_h_params.weight_decay,
+            ),
+            input_config.hyperparameters.xgb,
             loss_function,
-            output_dir, train_val_ratio=0.8,
+            output_dir,
+            train_val_ratio=0.8,
             early_stopping=early_stopping,
             validation_metric=best_h_params.metric,
-            embedding_model_name='node_embedder.pth',
-            xgboost_model_name='embedding_based_xgb_model.json',
-            random_state=42)
-        
-        evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
+            embedding_model_name="graph_sage_node_embedder.pth",
+            xgboost_model_name="xgboost_on_embeddings.json",
+            random_state=42,
+        )
+
+    # evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
+    create_triton_model_repo(
+        embedder_model,
+        xgb_model,
+        output_dir,
+        "graph_sage_node_embedder.onnx",
+        "xgboost_on_embeddings.json",
+        decision_threshold=0.5,
+    )

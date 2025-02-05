@@ -1,12 +1,10 @@
-
-FROM nvcr.io/nvidia/pyg:24.11-py3
+FROM gitlab-master.nvidia.com:5005/dl/dgx/pyg:25.01-py3-devel
 
 # Set working directory
 WORKDIR /app
 
 # Install Pydantic
 RUN pip install pydantic
-
 
 COPY config_schema.py config_schema.py
 COPY train_xgboost.py train_xgboost.py
