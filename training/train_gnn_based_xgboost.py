@@ -70,9 +70,29 @@ from sklearn.metrics import (
 
 from torch.utils.dlpack import to_dlpack
 
+
+class Metric(Enum):
+    RECALL = "recall"
+    F1 = "f1"
+    PRECISION = "precision"
+
+
 GraphSAGEModelConfig = namedtuple(
     "GraphSAGEModelConfig", ["in_channels", "out_channels"]
 )
+
+"""
+Configuration for the GraphSAGE model.
+
+This configuration object is used to specify the basic architectural parameters
+of the GraphSAGE model. In particular, it defines:
+
+Attributes:
+    in_channels (int): The number of features per input node. This value represents
+                         the dimensionality of the input node feature vectors.
+    out_channels (int): The number of features per output node. This value sets the
+                          dimensionality of the node embeddings produced by the model.
+"""
 
 
 HyperParams = namedtuple(
@@ -91,8 +111,36 @@ HyperParams = namedtuple(
     ],
 )
 
+"""
+Hyperparameters for training the GraphSAGE model.
+
+Attributes:
+    n_folds (int): The number of folds to use in cross-validation. This helps in
+                   evaluating the model's performance more robustly.
+    n_hops (int): The number of neighborhood layers (hops) to consider during message
+                  passing.
+    fan_out (int): The number of neighbor nodes to sample for each node.
+    batch_size (int): The number of nodes to process in a single mini-batch
+                      during training.
+    metric (str): The performance metric used to evaluate the model can be either "recall",
+                  "f1" or "precision"
+    learning_rate (float): The step size used by the optimizer for updating model parameters.
+    dropout_prob (float): The probability of dropping units in the model to prevent overfitting.
+    hidden_channels (int): The number of hidden units in the model's intermediate layers.
+    num_epochs (int): The total number of epochs for training the model.
+    weight_decay (float): Regularization factor for the optimizer to prevent overfitting.
+"""
+
 
 def set_seed(seed: int):
+    """
+    Set the random seed across multiple libraries.
+
+    Parameters:
+    ----------
+    seed (int): The seed value used to initialize the random number generators.
+    """
+    random.seed(seed)
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
@@ -235,13 +283,23 @@ def extract_embeddings(model, loader) -> Tuple[torch.Tensor, torch.Tensor]:
     return embeddings, labels
 
 
-class Metric(Enum):
-    RECALL = "recall"
-    F1 = "f1"
-    PRECISION = "precision"
-
-
 def maximize_f1(model, loader):
+    """
+    Determine the optimal threshold that maximizes the F1 score.
+
+    Parameters:
+    ----------
+    model : torch.nn.Module
+        The GNN model to be evaluated.
+    loader : cugraph_pyg.loader.NeighborLoader
+        NeighborLoader that provides batches of data for evaluation.
+
+    Returns:
+    -------
+    tuple: A tuple `(optimal_threshold, max_f1)` where:
+        - optimal_threshold (float): The threshold value that resulted in the maximum F1 score.
+        - max_f1 (float): The highest F1 score achieved across all tested thresholds.
+    """
     model.eval()
     probs = []
     targets = []
@@ -257,7 +315,7 @@ def maximize_f1(model, loader):
     probs = torch.cat(probs).numpy()
     targets = torch.cat(targets).numpy()
 
-    precision, recall, thresholds = precision_recall_curve(targets, probs)
+    _, _, thresholds = precision_recall_curve(targets, probs)
 
     # Compute F1 Score for Each Threshold
     f1_scores = []
@@ -279,7 +337,7 @@ def maximize_f1(model, loader):
 
 def tune_threshold(model, loader, desired_recall=0.90):
     """
-    Evaluates the performance of the GraphSAGE model.
+    Determine th threshold value for a desired recall.
 
     Parameters:
     ----------
@@ -321,28 +379,15 @@ def tune_threshold(model, loader, desired_recall=0.90):
     # Make predictions with the new threshold
     predictions = (probs > threshold).astype(int)
 
-    # Recompute metrics
-    final_recall = recall_score(targets, predictions)
+    # Compute precision
     final_precision = precision_score(targets, predictions, zero_division=0)
-    final_f1 = f1_score(targets, predictions, zero_division=0)
-    final_roc_auc = roc_auc_score(targets, probs)
-    final_auc_pr = average_precision_score(targets, probs)
-    final_cm = confusion_matrix(targets, predictions)
 
     print(
         f"\n Need to set the threshold to {threshold:.4f} to achieve "
         f"recall of {desired_recall} where the precision would be {final_precision}."
     )
 
-    return {
-        "threshold": threshold,
-        "recall": final_recall,
-        "precision": final_precision,
-        "f1_score": final_f1,
-        "roc_auc": final_roc_auc,
-        "auc_pr": final_auc_pr,
-        "confusion_matrix": final_cm,
-    }
+    return threshold
 
 
 def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
@@ -768,9 +813,12 @@ class EarlyStopping:
                     print("Early stopping triggered.")
 
 
-def generate_gnn_pbtx(
+def generate_gnn_pbtxt(
     model_file_name: str, input_dim: int, hidden_dim: int, path_to_gnn_pbtx: str
 ):
+    """
+    Write Protocol Buffers Text for GraphSAGE model.
+    """
     # Use an f-string to insert the parameter values into the PBtx content.
     pbtx_content = f"""\
 default_model_filename: "{model_file_name}"
@@ -805,9 +853,13 @@ instance_group [{{ kind: KIND_GPU }}]
     print(f"Saved embedder model config to {path_to_gnn_pbtx}")
 
 
-def generate_xgb_pbtx(
+def generate_xgb_pbtxt(
     model_file_name, input_dim: int, decision_threshold: float, path_to_xgb_pbtx: str
 ):
+    """
+    Write Protocol Buffers Text for XGBoost model.
+    """
+
     # Use an f-string with escaped braces to insert the variable input dimension.
     storage_type = "AUTO"
     pbtx_content = f"""\
@@ -855,6 +907,30 @@ def create_triton_model_repo(
     decision_threshold: float,
     model_repository_name: str = "model_repository",
 ):
+    """
+    Create a Triton Inference Server model repository containing both a GraphSAGE and an XGBoost model.
+
+    This function generates a directory structure compatible with Triton Inference Server that includes
+    the artifacts for two models: a GraphSAGE (GNN) model and an XGBoost model. This repository can then
+    be deployed with Triton Inference Server for serving predictions.
+
+    Args:
+        model (GraphSAGE):
+            The GraphSAGE model instance that will  produce embeddings of input transactions.
+        xgb_model (xgb.Booster):
+            An XGBoost model instance that will produce fraud scores based on embeddings produced
+            by the GraphSAGE model
+        output_dir (str):
+            The path to the directory the model repository will be saved.
+        gnn_file_name (str):
+            The filename to save the GraphSAGE model.
+        xgb_model_file_name (str):
+            The filename to save the XGBoost model.
+        decision_threshold (float):
+            A threshold value applied during inference to determine the final decision.
+        model_repository_name (str, optional):
+            The name of the model repository directory. Defaults to "model_repository".
+    """
 
     model.eval()
 
@@ -903,7 +979,7 @@ def create_triton_model_repo(
     )
 
     print(
-        f"Saving configs and models for Triton sever in {os.path.join(output_dir, model_repository_name)}"
+        f"....Saving model repository for Triton Inference sever in {os.path.join(output_dir, model_repository_name)}...."
     )
 
     print(f"Saved GraphSAGE node embedder model to {path_to_onnx_model}")
@@ -912,14 +988,14 @@ def create_triton_model_repo(
 
     print(f"Saved XGBoost model to {path_to_xgboost_model}")
 
-    generate_gnn_pbtx(
+    generate_gnn_pbtxt(
         gnn_file_name,
         model.in_channels,
         model.hidden_channels,
         os.path.join(gnn_repository_path, "config.pbtxt"),
     )
 
-    generate_xgb_pbtx(
+    generate_xgb_pbtxt(
         xgb_model_file_name,
         model.hidden_channels,
         decision_threshold,
