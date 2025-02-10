@@ -12,7 +12,7 @@
 # limitations under the License.
 
 from typing import List, Literal, Union, Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, conint, conlist, confloat
 from enum import Enum
 
 
@@ -26,9 +26,6 @@ class GPUOption(str, Enum):
     MULTIGPU = "multi"
 
 
-# Strict Base Model
-
-
 class StrictBaseModel(BaseModel):
     """
     A custom base model that forbids extra/unknown fields.
@@ -36,9 +33,6 @@ class StrictBaseModel(BaseModel):
 
     class Config:
         extra = "forbid"
-
-
-# XGB Hyperparameters
 
 
 class XGBHyperparametersSingle(StrictBaseModel):
@@ -111,9 +105,6 @@ class XGBListConfig(StrictBaseModel):
     )
 
 
-# GraphSAGE Models
-
-
 class GraphSAGEHyperparametersSingle(StrictBaseModel):
     """
     Hyperparameters for XGB when each parameter is a list of possible numeric values.
@@ -138,9 +129,6 @@ class GraphSAGEHyperparametersSingle(StrictBaseModel):
         0.005, gt=0, description="Learning rate (e.g., 0.005)."
     )
     weight_decay: float = Field(1e-5, ge=0, description="Learning rate (e.g., 0.005).")
-
-
-from pydantic import conint, conlist, confloat
 
 
 class GraphSAGEHyperparametersList(StrictBaseModel):
@@ -265,7 +253,6 @@ class GraphSAGEGridAndXGB(StrictBaseModel):
     )
 
 
-# Union of All Configs
 ModelConfig = Union[
     XGBSingleConfig, XGBListConfig, GraphSAGEAndXGB, GraphSAGEGridAndXGB
 ]

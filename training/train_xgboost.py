@@ -18,12 +18,12 @@ import cupy
 import cudf
 import xgboost as xgb
 
-from cuml.metrics import confusion_matrix, precision_recall_curve, roc_auc_score
+from cuml.metrics import confusion_matrix
 from cuml.metrics.accuracy import accuracy_score
 from cuml.model_selection import train_test_split
 
 import torch
-from sklearn.metrics import auc, f1_score, precision_score, recall_score
+from sklearn.metrics import f1_score, precision_score, recall_score
 
 from typing import List, Union
 
