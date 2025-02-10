@@ -7,7 +7,7 @@ This repo will contains a collection of graph-based microservices that will be r
 </h1>
 
 
-The first NIM focuses on training XGBoost models to predict fraud scores of credit card transactions.
+At as of now, this repo contains source code for only one NIM which focuses on training XGBoost models to predict fraud scores of credit card transactions.
 
 
 ## Training NIM
@@ -17,4 +17,4 @@ This NIM builds XGBoost model, using user provided configurations, to predict fr
   <img src="docs/imgs/training-nim.png" alt="Training NIM" width="500">
 </h1>
 
-You can find instructions on how to use this NIM [here](./training/README.md)
+You can find instructions on how to build and use this NIM [here](./training/README.md).
