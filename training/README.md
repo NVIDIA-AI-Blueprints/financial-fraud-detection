@@ -13,7 +13,33 @@ Clone the repository and build the Docker image by running the following command
  ```
 
 
-### 2. Write your training configuration on your host machine
+### 2. Make sure that data is organized correctly
+To Train a GNN model (e.g. GraphSAGE), a dataset needs to be organized in the following structure-
+
+```sh
+
+  ├── gnn
+  │   ├── edges.csv
+  │   ├── features.csv
+  │   ├── info.json
+  │   └── labels.csv
+```
+`edges.csv` must contain  the graph topology in COO format. Each line contains source and destination vertex ids in the following format. NOTE that, the vertex ids must be zero based.
+`src,dst,optional-attribute-value`
+
+`info.json` must contain the number of transaction nodes, with key `NUM_TRANSACTION_NODES`, in the JSON file.
+```sh
+  {
+      "NUM_TRANSACTION_NODES": 280945
+  }
+```
+
+`features.csv` must contain the features for each of the graph nodes, indexed by the vertex id. !Important: The first row of `features.csv` must contain name of the features.
+
+`labels.csv` must contain 0 (non-fraud) or 1(fraud) on each line
+
+
+### 3. Write your training configuration on your host machine
 
 A Training configuration must conform the schema defined in [configuration schema file](./config_schema.py). Note that, a valid JSON file can not have comments. Comments in the following example configuration file are for the purpose of explanation.
 
