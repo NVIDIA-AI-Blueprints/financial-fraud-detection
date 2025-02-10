@@ -7,7 +7,8 @@ This document provides instructions to build the Docker image and run the traini
 ### 1. Build the docker image
 Clone the repository and build the Docker image by running the following commands:
 ```sh
- git clone ssh://git@gitlab-master.nvidia.com:12051/mnaim/graph-nims.git
+ git clone https://gitlab-master.nvidia.com/RAPIDS/graph-nims.git
+ https://gitlab-master.nvidia.com/RAPIDS/graph-nims
  cd graph-nims
  docker build --no-cache -t training_container .
  ```
