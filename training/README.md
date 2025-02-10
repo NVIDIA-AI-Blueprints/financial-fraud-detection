@@ -25,19 +25,21 @@ To Train a GNN model (e.g. GraphSAGE), a dataset needs to be organized in the fo
   │   ├── info.json
   │   └── labels.csv
 ```
-`edges.csv` must contain  the graph topology in COO format. Each line contains source and destination vertex ids in the following format. NOTE that, the vertex ids must be zero based.
-`src,dst,optional-attribute-value`
+`edges.csv` must contain the graph topology in COO format. Each line contains source and destination vertex id, and an optional edge attribute. NOTE that, the vertex ids must be zero based.
 
-`info.json` must contain the number of transaction nodes, with key `NUM_TRANSACTION_NODES`, in the JSON file.
+`src, dst, optional-attribute-value`
+
+`info.json`, a json file, containing the number of transaction nodes, with key `NUM_TRANSACTION_NODES`.
+
 ```sh
   {
-      "NUM_TRANSACTION_NODES": 280945
+      "NUM_TRANSACTION_NODES": 1024
   }
 ```
 
-`features.csv` must contain the features for each of the graph nodes, indexed by the vertex id. !Important: The first row of `features.csv` must contain name of the features.
+`features.csv` must contain the features for each of the graph nodes, indexed by the vertex id. !Important: The first row of `features.csv` must contain name of the features, separated by commas.
 
-`labels.csv` must contain 0 (non-fraud) or 1(fraud) on each line
+`labels.csv` must contain 0 (non-fraud) or 1 (fraud) on each line, indicating if a transaction is fraud or not.
 
 
 ### 3. Write your training configuration on your host machine
