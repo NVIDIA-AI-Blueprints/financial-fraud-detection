@@ -1037,7 +1037,7 @@ def train_with_specific_hyper_params(
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     # Define the model
-    model = GraphSAGE(
+    graph_sage_model = GraphSAGE(
         in_channels=model_config.in_channels,
         hidden_channels=hyper_params_gnn.hidden_channels,
         out_channels=model_config.out_channels,
@@ -1073,21 +1073,23 @@ def train_with_specific_hyper_params(
     )
 
     optimizer = torch.optim.Adam(
-        model.parameters(),
+        graph_sage_model.parameters(),
         lr=hyper_params_gnn.learning_rate,
         weight_decay=hyper_params_gnn.weight_decay,
     )
 
     for epoch in range(hyper_params_gnn.num_epochs):
-        train_loss = train_gnn(model, train_loader, optimizer, loss_function)
-        metric_value = evaluate_gnn(model, val_loader, metric=validation_metric)
+        train_loss = train_gnn(graph_sage_model, train_loader, optimizer, loss_function)
+        metric_value = evaluate_gnn(
+            graph_sage_model, val_loader, metric=validation_metric
+        )
 
         if verbose:
             print(
                 f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric} : {metric_value}"
             )
         if early_stopping:
-            early_stopping(metric_value, model)
+            early_stopping(metric_value, graph_sage_model)
             if early_stopping.early_stop:
                 if verbose:
                     print(f"Early stopping at epoch {epoch}")
@@ -1095,15 +1097,19 @@ def train_with_specific_hyper_params(
 
     if early_stopping:
         # Load the Best Model
-        model.load_state_dict(torch.load(early_stopping.path, weights_only=True))
+        graph_sage_model.load_state_dict(
+            torch.load(early_stopping.path, weights_only=True)
+        )
+        # Remove temporary checkpoint file
+        try:
+            os.remove(early_stopping.path)
+            print(f"File {early_stopping.path} removed successfully.")
+        except Exception as e:
+            pass
 
     # Finally train on validation data well
     for epoch in range(hyper_params_gnn.num_epochs):
-        train_loss = train_gnn(model, val_loader, optimizer, loss_function)
-
-    # And, save the final model
-    if not os.path.exists(dir_to_save_models):
-        os.makedirs(dir_to_save_models)
+        train_loss = train_gnn(graph_sage_model, val_loader, optimizer, loss_function)
 
     # Train the XGBoost model based on embeddings produced by the GraphSAGE model
     data_loader = NeighborLoader(
@@ -1116,19 +1122,23 @@ def train_with_specific_hyper_params(
     )
 
     # Extract embeddings from the second-to-last layer and keep them on GPU
-    embeddings, labels = extract_embeddings(model, data_loader)
+    embeddings, labels = extract_embeddings(graph_sage_model, data_loader)
 
     # Train an XGBoost model on the extracted embeddings (on GPU)
     bst = train_xgboost(embeddings.to(device), labels.to(device), hyper_params_xgb)
 
-    xgb_model_path = os.path.join(dir_to_save_models, xgboost_model_name)
+    # Save the models
+    os.makedirs(dir_to_save_models, exist_ok=True)
 
-    if not os.path.exists(os.path.dirname(xgb_model_path)):
-        os.makedirs(os.path.dirname(xgb_model_path))
-    bst.save_model(xgb_model_path)
-
-    print(f"\nSaved XGBoost model trained on embeddings to {xgb_model_path}")
-    return model, bst
+    if embedding_model_name:
+        gnn_model_path = os.path.join(dir_to_save_models, embedding_model_name)
+        torch.save(graph_sage_model, gnn_model_path)
+        print(f"\nSaved GraphSAGE model to produce embeddings to {gnn_model_path}")
+    if xgboost_model_name:
+        xgb_model_path = os.path.join(dir_to_save_models, xgboost_model_name)
+        bst.save_model(xgb_model_path)
+        print(f"\nSaved XGBoost model trained on embeddings to {xgb_model_path}")
+    return graph_sage_model, bst
 
 
 def find_best_params(
