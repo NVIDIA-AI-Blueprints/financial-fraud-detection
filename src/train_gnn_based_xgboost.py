@@ -20,7 +20,7 @@ from collections import namedtuple
 from typing import List, Tuple, Dict, Union
 from enum import Enum
 
-from config_schema import (
+from src.config_schema import (
     GraphSAGEHyperparametersSingle,
     GraphSAGEHyperparametersList,
     GraphSAGEAndXGB,
@@ -861,7 +861,7 @@ instance_group [{{ kind: KIND_GPU }}]
     with open(path_to_gnn_pbtx, "w") as file:
         file.write(pbtx_content)
 
-    print(f"Saved embedder model config to {path_to_gnn_pbtx}")
+    print(f"\nSaved GraphSAGE model config to {path_to_gnn_pbtx}")
 
 
 def generate_xgb_pbtxt(
@@ -906,7 +906,7 @@ parameters [
     # Write the PBtx content to the specified file.
     with open(path_to_xgb_pbtx, "w") as file:
         file.write(pbtx_content)
-    print(f"Saved XGBoost model config to {path_to_xgb_pbtx}")
+    print(f"\nSaved XGBoost model config to {path_to_xgb_pbtx}")
 
 
 def create_triton_model_repo(
@@ -993,11 +993,11 @@ def create_triton_model_repo(
         f"....Saving model repository for Triton Inference sever in {os.path.join(output_dir, model_repository_name)}...."
     )
 
-    print(f"Saved GraphSAGE node embedder model to {path_to_onnx_model}")
+    print(f"\nSaved GraphSAGE model to {path_to_onnx_model}")
 
     xgb_model.save_model(path_to_xgboost_model)
 
-    print(f"Saved XGBoost model to {path_to_xgboost_model}")
+    print(f"\Saved XGBoost model to {path_to_xgboost_model}")
 
     generate_gnn_pbtxt(
         gnn_file_name,
@@ -1127,7 +1127,7 @@ def train_with_specific_hyper_params(
         os.makedirs(os.path.dirname(xgb_model_path))
     bst.save_model(xgb_model_path)
 
-    print(f"Saved GraphSAGE based XGBoost model to {xgb_model_path}")
+    print(f"\nSaved XGBoost model trained on embeddings to {xgb_model_path}")
     return model, bst
 
 

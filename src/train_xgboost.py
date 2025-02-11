@@ -27,7 +27,7 @@ from sklearn.metrics import f1_score, precision_score, recall_score
 
 from typing import List, Union
 
-from config_schema import (
+from src.config_schema import (
     XGBSingleConfig,
     XGBListConfig,
     XGBHyperparametersList,
@@ -50,7 +50,7 @@ def tran_sg_xgboost(
     verbose: bool = False,
 ):
 
-    print(f"Running XGBoost training....")
+    print(f"\nRunning XGBoost training....")
 
     dataset_dir = data_dir
     xgb_data_dir = os.path.join(dataset_dir, "xgb")
@@ -135,7 +135,7 @@ def tran_sg_xgboost(
     # Save the model
     os.makedirs(model_dir, exist_ok=True)
     final_model.save_model(os.path.join(model_dir, model_file_name))
-    print(f"Saved XGBoost model to {os.path.join(model_dir, model_file_name)}")
+    print(f"\nSaved XGBoost model to {os.path.join(model_dir, model_file_name)}")
     return final_model
 
 
