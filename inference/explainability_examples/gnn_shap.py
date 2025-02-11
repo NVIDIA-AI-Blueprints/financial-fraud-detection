@@ -52,17 +52,19 @@ shap_values = explainer.shap_values(embeddings.numpy())
 shap.summary_plot(shap_values, embeddings.numpy())
 #print(shap_values)
 
-# Step 4: Use Captum for SHAP values on GNN
-gnn_model.train()  # Back to trainable mode
+# Step 4.1: Use Captum for SHAP values on GNN
 captum_shap = ShapleyValueSampling(gnn_model)
 
 # Explain GNN embeddings for a specific node
-#attributions = captum_shap.attribute(
-#    inputs=node_features, 
-#    target=0,  # Target class
-#    n_samples = 5
-#)
+attributions = captum_shap.attribute(
+    inputs=(node_features, edge_index), 
+    target=0,  # Target class
+    n_samples = 5
+)
+print ("Captum Shap value", attributions)
 
+
+# Step 4.2: Integrated Gradients
 def forward_with_edge_index(x):
     return gnn_model(x, edge_index)
 
@@ -75,5 +77,5 @@ ig_attr = ig.attribute(
     target=0  # Target class
 )
 
-print("Captum SHAP Attributions:", ig_attr)
+print("Captum integrated gradients Attributions:", ig_attr)
 
