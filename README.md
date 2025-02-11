@@ -9,11 +9,11 @@ Based on user provided training configuration, the NIM first builds a GNN model 
 
 <div style="display: flex; flex-direction: row; gap: 10px;">
   <figure style="text-align: center;">
-    <img src="docs/imgs/nv-min.png" alt="Image 1" style="width: 200px;">
+    <img src="docs/imgs/nv-min.png" alt="Image 1" style="width: 150px;">
     <figcaption>High-level overview of NIM architecture</figcaption>
   </figure>
   <figure style="text-align: center;">
-    <img src="docs/imgs/training-nim.png" alt="Image 2" style="width: 400px;">
+    <img src="docs/imgs/training-nim.png" alt="Image 2" style="width: 350px;">
     <figcaption>Model Training NIM</figcaption>
   </figure>
 </div>
