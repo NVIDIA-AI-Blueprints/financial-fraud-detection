@@ -50,7 +50,7 @@ def tran_sg_xgboost(
     verbose: bool = False,
 ):
 
-    print(f"\nRunning XGBoost training....")
+    print(f"\n-----Running XGBoost training-----")
 
     dataset_dir = data_dir
     xgb_data_dir = os.path.join(dataset_dir, "xgb")

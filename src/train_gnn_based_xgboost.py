@@ -990,14 +990,14 @@ def create_triton_model_repo(
     )
 
     print(
-        f"....Saving model repository for Triton Inference sever in {os.path.join(output_dir, model_repository_name)}...."
+        f"------Saving model repository in {os.path.join(output_dir, model_repository_name)}-----"
     )
 
     print(f"\nSaved GraphSAGE model to {path_to_onnx_model}")
 
     xgb_model.save_model(path_to_xgboost_model)
 
-    print(f"\Saved XGBoost model to {path_to_xgboost_model}")
+    print(f"\nSaved XGBoost model to {path_to_xgboost_model}")
 
     generate_gnn_pbtxt(
         gnn_file_name,
@@ -1031,7 +1031,7 @@ def train_with_specific_hyper_params(
     verbose: bool = False,
 ) -> Tuple[GraphSAGE, xgb.Booster]:
 
-    print(f"Running GraphSAGE based XGBoost training....")
+    print(f"-----Training XGBoost on embeddings produced by GraphSAGE model-----")
 
     # Set the device to GPU if available; otherwise, default to CPU
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
