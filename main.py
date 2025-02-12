@@ -16,9 +16,9 @@ import json
 
 from pydantic import TypeAdapter, ValidationError
 
-from config_schema import FullConfig, GPUOption, ModelType
-from train_gnn_based_xgboost import run_sg_embedding_based_xgboost
-from train_xgboost import run_sg_xgboost_training
+from src.config_schema import FullConfig, GPUOption, ModelType
+from src.train_gnn_based_xgboost import run_sg_embedding_based_xgboost
+from src.train_xgboost import run_sg_xgboost_training
 
 
 def load_config(path: str) -> FullConfig:

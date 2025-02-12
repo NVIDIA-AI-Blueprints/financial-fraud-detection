@@ -1,0 +1,15 @@
+# Byte-compiled / optimized files
+__pycache__/
+*.py[cod]
+
+# Virtual environments
+venv/
+.venv/
+
+# Build and distribution folders
+build/
+dist/
+*.egg-info/
+
+# Environment files (if used for secrets or local config)
+.env
