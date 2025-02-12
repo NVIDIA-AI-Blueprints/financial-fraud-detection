@@ -24,7 +24,6 @@
           "num_boost_round": 512,
           "gamma": 0.0
         }
-
       }
     }
   ]
