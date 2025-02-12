@@ -36,7 +36,6 @@ Clone the repository and build the Docker image by running the following command
 To Train a GNN model (e.g. GraphSAGE), a dataset needs to be organized in the following structure-
 
 ```sh
-
   ├── gnn
   │   ├── edges.csv
   │   ├── features.csv
@@ -66,7 +65,7 @@ A Training configuration must conform the schema defined in [configuration schem
 
 A training configuration must conform to the schema defined in the [configuration schema file](./src/config_schema.py). Note that a valid JSON file cannot contain comments. The comments in the following example training configuration are for explanation purposes only.
 
-The example training configuration file is located [here](./example_training_config.json).
+The example training configuration file is located [here](./example_training_config_graphsage_xgboost.json).
 
 ```bash
 {
@@ -78,17 +77,6 @@ The example training configuration file is located [here](./example_training_con
 
   // List of models to train
   "models": [
-    {
-      "kind": "XGBoost",                   // Type of model: standard XGBoost
-      "gpu": "single",                     // GPU usage: 'single' indicates using a single GPU
-      "hyperparameters": {
-        "max_depth": 6,                    // Maximum tree depth
-        "learning_rate": 0.2,              // Learning rate for the boosting process
-        "num_parallel_tree": 3,            // Number of trees built in parallel
-        "num_boost_round": 512,            // Total number of boosting rounds
-        "gamma": 0.0                       // Minimum loss reduction required to make a further partition on a leaf node
-      }
-    },
     {
       "kind": "GraphSAGE_XGBoost",         // Hybrid model combining GraphSAGE with XGBoost
       "gpu": "single",                     // GPU usage: 'single' indicates using a single GPU
@@ -108,6 +96,33 @@ The example training configuration file is located [here](./example_training_con
           "num_boost_round": 512,          // Number of boosting rounds
           "gamma": 0.0                     // Minimum loss reduction required to make a further partition on a leaf node
         }
+      }
+    }
+  ]
+}
+```
+
+This container can train XGBoost models on raw data as well. [Here](./example_training_config_xgboost.json) is a an example training configuration file for training an XGBoost model on raw data.
+
+```sh
+{
+  // Configuration for file paths
+  "paths": {
+    "data_dir": "/data",                   // Directory path within the container where input data is stored.
+    "output_dir": "/data/trained_models"   // Directory path within the container where trained models will be saved.
+  },
+
+  // List of models to train
+  "models": [
+    {
+      "kind": "XGBoost",                   // Type of model: standard XGBoost
+      "gpu": "single",                     // GPU usage: 'single' indicates using a single GPU
+      "hyperparameters": {
+        "max_depth": 6,                    // Maximum tree depth
+        "learning_rate": 0.2,              // Learning rate for the boosting process
+        "num_parallel_tree": 3,            // Number of trees built in parallel
+        "num_boost_round": 512,            // Total number of boosting rounds
+        "gamma": 0.0                       // Minimum loss reduction required to make a further partition on a leaf node
       }
     }
   ]

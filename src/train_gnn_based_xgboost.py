@@ -20,16 +20,6 @@ from collections import namedtuple
 from typing import List, Tuple, Dict, Union
 from enum import Enum
 
-from src.config_schema import (
-    GraphSAGEHyperparametersSingle,
-    GraphSAGEHyperparametersList,
-    GraphSAGEAndXGB,
-    GraphSAGEGridAndXGB,
-    GraphSAGEAndXGBConfig,
-    GraphSAGEGridAndXGBConfig,
-    XGBHyperparametersSingle,
-)
-
 # GPU-accelerated libraries (torch, cupy, cudf, rmm)
 import torch
 import cupy
@@ -45,15 +35,11 @@ rmm.reinitialize(devices=[0], pool_allocator=True, managed_memory=True)
 cupy.cuda.set_allocator(rmm_cupy_allocator)
 torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
 
-# PyTorch and related libraries
-import torch.nn.functional as F
-import torch.nn as nn
-
 # PyTorch Geometric and cuGraph libraries for GNNs and graph handling
 import cugraph_pyg
 from cugraph_pyg.loader import NeighborLoader
 import torch_geometric
-from torch_geometric.nn import SAGEConv
+
 
 # Enable GPU memory spilling to CPU with cuDF to handle larger datasets
 from cugraph.testing.mg_utils import enable_spilling  # noqa: E402
@@ -73,13 +59,22 @@ from sklearn.metrics import (
     recall_score,
     precision_score,
     f1_score,
-    roc_auc_score,
-    average_precision_score,
     confusion_matrix,
     precision_recall_curve,
 )
 
 from torch.utils.dlpack import to_dlpack
+
+from src.config_schema import (
+    GraphSAGEHyperparametersSingle,
+    GraphSAGEHyperparametersList,
+    GraphSAGEAndXGB,
+    GraphSAGEGridAndXGB,
+    GraphSAGEAndXGBConfig,
+    GraphSAGEGridAndXGBConfig,
+    XGBHyperparametersSingle,
+)
+from src.gnn_models import GraphSAGE
 
 
 class Metric(Enum):
@@ -162,64 +157,6 @@ def set_seed(seed: int):
 
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
-
-
-class GraphSAGE(torch.nn.Module):
-    """
-    GraphSAGE model for graph-based learning.
-
-    This model learns node embeddings by aggregating information from a node's
-    neighborhood using multiple graph convolutional layers.
-
-    Parameters:
-    ----------
-    in_channels : int
-        The number of input features for each node.
-    hidden_channels : int
-        The number of hidden units in each layer, controlling
-        the embedding dimension.
-    out_channels : int
-        The number of output features (or classes) for the final layer.
-    n_hops : int
-        The number of GraphSAGE layers (or hops) used to aggregate information
-        from neighboring nodes.
-    dropout_prob : float, optional (default=0.25)
-        The probability of dropping out nodes during training for
-        regularization.
-    """
-
-    def __init__(
-        self, in_channels, hidden_channels, out_channels, n_hops, dropout_prob=0.25
-    ):
-        super(GraphSAGE, self).__init__()
-
-        self.in_channels = in_channels
-        self.hidden_channels = hidden_channels
-        self.out_channels = out_channels
-
-        # list of conv layers
-        self.convs = nn.ModuleList()
-        # add first conv layer to the list
-        self.convs.append(SAGEConv(in_channels, hidden_channels))
-        # add the remaining conv layers to the list
-        for _ in range(n_hops - 1):
-            self.convs.append(SAGEConv(hidden_channels, hidden_channels))
-
-        # output layer
-        self.fc = nn.Linear(hidden_channels, out_channels)
-        self.dropout_prob = dropout_prob
-
-    def forward(self, x, edge_index, return_hidden: bool = False):
-
-        for conv in self.convs:
-            x = conv(x, edge_index)
-            x = F.relu(x)
-            x = F.dropout(x, p=self.dropout_prob, training=self.training)
-
-        if return_hidden:
-            return x
-        else:
-            return self.fc(x)
 
 
 def train_gnn(model, loader, optimizer, criterion) -> float:
@@ -824,196 +761,6 @@ class EarlyStopping:
                     print("Early stopping triggered.")
 
 
-def generate_gnn_pbtxt(
-    model_file_name: str, input_dim: int, hidden_dim: int, path_to_gnn_pbtx: str
-):
-    """
-    Write Protocol Buffers Text for GraphSAGE model.
-    """
-    # Use an f-string to insert the parameter values into the PBtx content.
-    pbtx_content = f"""\
-default_model_filename: "{model_file_name}"
-platform: "onnxruntime_onnx"
-input [                                 
- {{  
-    name: "x"
-    data_type: TYPE_FP32
-    dims: [-1, {input_dim} ]                    
-  }},
-  {{
-    name: "edge_index"
-    data_type: TYPE_INT64
-    dims: [ 2, -1]
-  }}
-]
-output [
- {{
-    name: "output"
-    data_type: TYPE_FP32
-    dims: [-1, {hidden_dim} ]
-  }}
-]
-instance_group [{{ kind: KIND_GPU }}]
-
-"""
-
-    # Write the content to the specified file.
-    with open(path_to_gnn_pbtx, "w") as file:
-        file.write(pbtx_content)
-
-    print(f"\nSaved GraphSAGE model config to {path_to_gnn_pbtx}")
-
-
-def generate_xgb_pbtxt(
-    model_file_name, input_dim: int, decision_threshold: float, path_to_xgb_pbtx: str
-):
-    """
-    Write Protocol Buffers Text for XGBoost model.
-    """
-
-    # Use an f-string with escaped braces to insert the variable input dimension.
-    storage_type = "AUTO"
-    pbtx_content = f"""\
-default_model_filename: "{model_file_name}"
-backend: "fil"
-input [
- {{
-    name: "input__0"
-    data_type: TYPE_FP32
-    dims: [ -1, {input_dim} ]
- }}
-]
-output [
- {{
-    name: "output__0"
-    data_type: TYPE_FP32
-    dims: [ -1, 1 ]
- }}
-]
-instance_group [{{ kind: KIND_GPU }}]
-parameters [
- {{
-    key: "model_type"
-    value: {{ string_value: "xgboost_json" }}
- }},
- {{
-    key: "output_class"
-    value: {{ string_value: "false" }}
- }}
-]
-"""
-
-    # Write the PBtx content to the specified file.
-    with open(path_to_xgb_pbtx, "w") as file:
-        file.write(pbtx_content)
-    print(f"\nSaved XGBoost model config to {path_to_xgb_pbtx}")
-
-
-def create_triton_model_repo(
-    model: GraphSAGE,
-    xgb_model: xgb.Booster,
-    output_dir: str,
-    gnn_file_name: str,
-    xgb_model_file_name: str,
-    decision_threshold: float,
-    model_repository_name: str = "model_repository",
-):
-    """
-    Create a Triton Inference Server model repository containing both a GraphSAGE and an XGBoost model.
-
-    This function generates a directory structure compatible with Triton Inference Server that includes
-    the artifacts for two models: a GraphSAGE (GNN) model and an XGBoost model. This repository can then
-    be deployed with Triton Inference Server for serving predictions.
-
-    Args:
-        model (GraphSAGE):
-            The GraphSAGE model instance that will  produce embeddings of input transactions.
-        xgb_model (xgb.Booster):
-            An XGBoost model instance that will produce fraud scores based on embeddings produced
-            by the GraphSAGE model
-        output_dir (str):
-            The path to the directory the model repository will be saved.
-        gnn_file_name (str):
-            The filename to save the GraphSAGE model.
-        xgb_model_file_name (str):
-            The filename to save the XGBoost model.
-        decision_threshold (float):
-            A threshold value applied during inference to determine the final decision.
-        model_repository_name (str, optional):
-            The name of the model repository directory. Defaults to "model_repository".
-    """
-
-    model.eval()
-
-    # Generate random input tensors
-    num_nodes = 64
-    num_features = model.in_channels
-    num_edges = 512
-
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
-    # Random node features: shape [num_nodes, num_features]
-    x = torch.randn(num_nodes, num_features).to(device)
-
-    # Random edge index: shape [2, num_edges], values in [0, num_nodes)
-    edge_index = torch.randint(0, num_nodes, (2, num_edges)).to(device)
-
-    return_hidden = True
-
-    # Prepare the example input as a tuple (or list) matching the model's forward signature
-    example_input = (x, edge_index, return_hidden)
-
-    gnn_repository_path = os.path.join(output_dir, model_repository_name, "model")
-    xgb_repository_path = os.path.join(output_dir, model_repository_name, "xgboost")
-
-    gnn_model_dir = os.path.join(gnn_repository_path, "1")
-    xgb_model_dir = os.path.join(xgb_repository_path, "1")
-
-    os.makedirs(gnn_model_dir, exist_ok=True)
-    os.makedirs(xgb_model_dir, exist_ok=True)
-    path_to_onnx_model = os.path.join(gnn_model_dir, gnn_file_name)
-    path_to_xgboost_model = os.path.join(xgb_model_dir, xgb_model_file_name)
-
-    torch.onnx.export(
-        model,  # The scripted model with dynamic control flow
-        example_input,  # Example input for tracing the model's graph
-        path_to_onnx_model,
-        export_params=True,  # Include model parameters in the ONNX file
-        opset_version=11,  # ONNX opset version (11+ supports control flow)
-        do_constant_folding=True,  # Perform constant folding for optimization
-        input_names=["x", "edge_index"],
-        output_names=["output"],  # (Optional) Name for the output tensor
-        dynamic_axes={
-            "x": {0: "batch_size"},
-            "edge_index": {1: "num_edges"},
-        },
-    )
-
-    print(
-        f"------Saving model repository in {os.path.join(output_dir, model_repository_name)}-----"
-    )
-
-    print(f"\nSaved GraphSAGE model to {path_to_onnx_model}")
-
-    xgb_model.save_model(path_to_xgboost_model)
-
-    print(f"\nSaved XGBoost model to {path_to_xgboost_model}")
-
-    generate_gnn_pbtxt(
-        gnn_file_name,
-        model.in_channels,
-        model.hidden_channels,
-        os.path.join(gnn_repository_path, "config.pbtxt"),
-    )
-
-    generate_xgb_pbtxt(
-        xgb_model_file_name,
-        model.hidden_channels,
-        decision_threshold,
-        os.path.join(xgb_repository_path, "config.pbtxt"),
-    )
-
-
 def train_with_specific_hyper_params(
     data,
     num_transaction_nodes: int,
@@ -1103,7 +850,6 @@ def train_with_specific_hyper_params(
         # Remove temporary checkpoint file
         try:
             os.remove(early_stopping.path)
-            print(f"File {early_stopping.path} removed successfully.")
         except Exception as e:
             pass
 
@@ -1377,7 +1123,11 @@ def run_sg_embedding_based_xgboost(
         )
 
     # evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
-    create_triton_model_repo(
+    from utils.triton_model_repo_generator import (
+        create_triton_repo_for_gnn_based_xgboost,
+    )
+
+    create_triton_repo_for_gnn_based_xgboost(
         embedder_model,
         xgb_model,
         output_dir,
