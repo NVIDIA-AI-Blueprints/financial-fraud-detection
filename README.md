@@ -25,8 +25,7 @@ Based on user provided training configuration, the NIM first builds a GNN model 
 ### 1. Build the docker image
 Clone the repository and build the Docker image by running the following commands:
 ```sh
- git clone https://gitlab-master.nvidia.com/RAPIDS/graph-nims.git
- https://gitlab-master.nvidia.com/RAPIDS/graph-nims
+ git clone https://gitlab-master.nvidia.com/RAPIDS/financial-fraud-training.git
  cd graph-nims
  docker build --no-cache -t model_training_nim .
  ```
