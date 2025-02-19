@@ -1,7 +1,7 @@
 {
     "paths": {
       "data_dir": "/data",
-      "output_dir": "/data/trained_models"
+      "output_dir": "/trained_models"
     },
     
     "models": [

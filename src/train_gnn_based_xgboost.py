@@ -5,7 +5,6 @@
 # international Copyright laws.
 
 
-
 import os
 import sys
 import json
@@ -863,19 +862,21 @@ def train_with_specific_hyper_params(
     os.makedirs(dir_to_save_models, exist_ok=True)
 
     if embedding_model_name:
-        gnn_model_path = os.path.join(dir_to_save_models, embedding_model_name)
-        torch.save(graph_sage_model, gnn_model_path)
-        print(f"\nSaved GraphSAGE model to produce embeddings to {gnn_model_path}")
+        # gnn_model_path = os.path.join(dir_to_save_models, embedding_model_name)
+        # torch.save(graph_sage_model, gnn_model_path)
+        # print(f"\nSaved GraphSAGE model to produce embeddings to {gnn_model_path}")
 
-        state_dict_file_path = os.path.join(
-            dir_to_save_models, "state_dict_for_python_backend.pth"
-        )
-        torch.save(graph_sage_model.state_dict(), state_dict_file_path)
+        # state_dict_file_path = os.path.join(
+        #     dir_to_save_models, "state_dict_for_python_backend.pth"
+        # )
+        # torch.save(graph_sage_model.state_dict(), state_dict_file_path)
+        pass
 
     if xgboost_model_name:
-        xgb_model_path = os.path.join(dir_to_save_models, xgboost_model_name)
-        bst.save_model(xgb_model_path)
-        print(f"\nSaved XGBoost model trained on embeddings to {xgb_model_path}")
+        # xgb_model_path = os.path.join(dir_to_save_models, xgboost_model_name)
+        # bst.save_model(xgb_model_path)
+        # print(f"\nSaved XGBoost model trained on embeddings to {xgb_model_path}")
+        pass
     return graph_sage_model, bst
 
 
@@ -1114,7 +1115,7 @@ def run_sg_embedding_based_xgboost(
             random_state=42,
         )
 
-    evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
+    # evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
     from utils.triton_model_repo_generator import (
         create_triton_repo_for_gnn_based_xgboost,
         create_repo_for_python_backend,

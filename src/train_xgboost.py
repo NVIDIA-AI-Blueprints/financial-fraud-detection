@@ -132,9 +132,9 @@ def tran_sg_xgboost(
     final_model = xgb.train(best_params, dtrain, num_boost_round=best_num_boost_round)
 
     # Save the model
-    os.makedirs(model_dir, exist_ok=True)
-    final_model.save_model(os.path.join(model_dir, model_file_name))
-    print(f"\nSaved XGBoost model to {os.path.join(model_dir, model_file_name)}")
+    # os.makedirs(model_dir, exist_ok=True)
+    # final_model.save_model(os.path.join(model_dir, model_file_name))
+    # print(f"\nSaved XGBoost model to {os.path.join(model_dir, model_file_name)}")
     return final_model, nr_input_features
 
 
@@ -209,7 +209,7 @@ def run_sg_xgboost_training(
     xgb_model, nr_input_features = tran_sg_xgboost(
         hyperparameter_list, data_dir, model_dir, model_file_name
     )
-    evaluate_on_unseen_data(xgb_model, data_dir)
+    # evaluate_on_unseen_data(xgb_model, data_dir)
 
     create_triton_repo_for_xgboost(
         xgb_model,
