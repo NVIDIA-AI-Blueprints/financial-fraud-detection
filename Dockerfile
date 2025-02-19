@@ -1,3 +1,9 @@
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+
+# This source code and/or documentation ("Licensed Deliverables") are
+# subject to NVIDIA intellectual property rights under U.S. and
+# international Copyright laws.
+
 # Use pyg base image
 FROM gitlab-master.nvidia.com:5005/dl/dgx/pyg:25.01-py3-devel
 
