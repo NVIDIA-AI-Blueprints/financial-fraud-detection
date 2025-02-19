@@ -174,7 +174,7 @@ class TritonPythonModel:
                 torch.as_tensor(edge_index_numpy, device=self.device),
                 True,
             )
-            y_pred_prob = self.bst.predict(xgb.DMatrix(embeddings.detach()))
+            y_pred_prob = self.bst.predict(xgb.DMatrix(embeddings.detach()))[:, None]
             if compute_shap_numpy[0]:
 
                 def forward_function(node_x_tensor):
@@ -196,7 +196,7 @@ class TritonPythonModel:
                     x_input,
                     baselines=baseline,
                     feature_mask=torch.tensor(feature_mask_numpy).to(torch.int32),
-                    n_samples=32,
+                    n_samples=128,
                 )
             else:
                 attributions = torch.zeros((1, self.in_channels))
