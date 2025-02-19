@@ -63,8 +63,6 @@ from sklearn.metrics import (
     precision_recall_curve,
 )
 
-from torch.utils.dlpack import to_dlpack
-
 from src.config_schema import (
     GraphSAGEHyperparametersSingle,
     GraphSAGEHyperparametersList,
@@ -187,7 +185,7 @@ def train_gnn(model, loader, optimizer, criterion) -> float:
         optimizer.zero_grad()
 
         batch_size = batch.batch_size
-        out = model(batch.x[:, :].to(torch.float32), batch.edge_index)[:batch_size]
+        out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
         y = batch.y[:batch_size].view(-1).to(torch.long)
         loss = criterion(out, y)
         loss.backward()
@@ -363,7 +361,7 @@ def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
         for batch in loader:
 
             batch_size = batch.batch_size
-            out = model(batch.x[:, :].to(torch.float32), batch.edge_index)[:batch_size]
+            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
             predictions = out.argmax(dim=1)
             y = batch.y[:batch_size].view(-1).to(torch.long)
 
@@ -412,7 +410,7 @@ def validation_loss(model, loader, criterion) -> float:
         for batch in loader:
             batch_count += 1
             batch_size = batch.batch_size
-            out = model(batch.x[:, :].to(torch.float32), batch.edge_index)[:batch_size]
+            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
             y = batch.y[:batch_size].view(-1).to(torch.long)
             loss = criterion(out, y)
             total_loss += loss.item()
@@ -442,13 +440,10 @@ def train_xgboost(
         A trained XGBoost model fitted on the provided data.
     """
 
-    labels_cudf = cudf.Series(cp.from_dlpack(to_dlpack(labels)))
-    embeddings_cudf = cudf.DataFrame(cp.from_dlpack(to_dlpack(embeddings)))
-
     assert isinstance(hyper_params_xgb, XGBHyperparametersSingle)
 
     # Convert data to DMatrix format for XGBoost on GPU
-    dtrain = xgb.DMatrix(embeddings_cudf, label=labels_cudf)
+    dtrain = xgb.DMatrix(embeddings, labels)
 
     # Set XGBoost parameters for GPU usage
     param = {
@@ -487,11 +482,8 @@ def evaluate_xgboost(bst, embeddings, labels, decision_threshold=0.5):
     A tuple containing f1-score, recall, precision, accuracy and the confusion matrix
     """
 
-    # Convert embeddings to cuDF DataFrame
-    embeddings_cudf = cudf.DataFrame(cp.from_dlpack(to_dlpack(embeddings)))
-
     # Create DMatrix for the test embeddings
-    dtest = xgb.DMatrix(embeddings_cudf)
+    dtest = xgb.DMatrix(embeddings)
 
     # Predict using XGBoost on GPU
     predictions = bst.predict(dtest)
@@ -880,6 +872,12 @@ def train_with_specific_hyper_params(
         gnn_model_path = os.path.join(dir_to_save_models, embedding_model_name)
         torch.save(graph_sage_model, gnn_model_path)
         print(f"\nSaved GraphSAGE model to produce embeddings to {gnn_model_path}")
+
+        state_dict_file_path = os.path.join(
+            dir_to_save_models, "state_dict_for_python_backend.pth"
+        )
+        torch.save(graph_sage_model.state_dict(), state_dict_file_path)
+
     if xgboost_model_name:
         xgb_model_path = os.path.join(dir_to_save_models, xgboost_model_name)
         bst.save_model(xgb_model_path)
@@ -1125,6 +1123,7 @@ def run_sg_embedding_based_xgboost(
     # evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
     from utils.triton_model_repo_generator import (
         create_triton_repo_for_gnn_based_xgboost,
+        create_repo_for_python_backend,
     )
 
     create_triton_repo_for_gnn_based_xgboost(
@@ -1134,4 +1133,12 @@ def run_sg_embedding_based_xgboost(
         "graph_sage_node_embedder.onnx",
         "xgboost_on_embeddings.json",
         decision_threshold=0.5,
+    )
+
+    create_repo_for_python_backend(
+        embedder_model,
+        xgb_model,
+        output_dir,
+        "state_dict_gnn_model.pth",
+        "embedding_based_xgboost.json",
     )
