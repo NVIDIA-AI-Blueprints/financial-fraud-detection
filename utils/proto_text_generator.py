@@ -70,7 +70,7 @@ output [
  {{
     name: "output"
     data_type: TYPE_FP32
-    dims: [-1, {hidden_dim} ]
+    dims: [-1, {input_dim + hidden_dim } ]
   }}
 ]
 instance_group [{{ kind: KIND_GPU }}]
@@ -83,7 +83,7 @@ instance_group [{{ kind: KIND_GPU }}]
 
 
 def generate_python_backend_pbtxt(
-    mdoel_name: str,
+    model_name: str,
     gnn_state_dict_file_name: str,
     embedding_based_xgboost_model_filename: str,
     gnn_input_dim: int,
@@ -98,7 +98,7 @@ def generate_python_backend_pbtxt(
     """
     # Use an f-string to insert the parameter values into the PBtx content.
     pbtx_content = f"""\
-name: "{mdoel_name}"
+name: "{model_name}"
 backend: "python"
 input [
   {{

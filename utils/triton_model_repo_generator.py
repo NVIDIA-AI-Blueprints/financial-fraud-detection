@@ -110,7 +110,7 @@ def create_triton_repo_for_gnn_based_xgboost(
 
     generate_xgb_pbtxt(
         xgb_model_file_name,
-        model.hidden_channels,
+        model.hidden_channels + model.in_channels,
         1,
         decision_threshold,
         os.path.join(xgb_repository_path, "config.pbtxt"),

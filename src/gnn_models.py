@@ -61,17 +61,18 @@ class GraphSAGE(torch.nn.Module):
             self.convs.append(SAGEConv(hidden_channels, hidden_channels))
 
         # output layer
-        self.fc = nn.Linear(hidden_channels, out_channels)
+        self.fc = nn.Linear(hidden_channels + in_channels, out_channels)
         self.dropout_prob = dropout_prob
 
     def forward(self, x, edge_index, return_hidden: bool = False):
 
         for conv in self.convs:
-            x = conv(x, edge_index)
-            x = F.relu(x)
-            x = F.dropout(x, p=self.dropout_prob, training=self.training)
-
+            embeddings = conv(x, edge_index)
+            embeddings = F.relu(embeddings)
+            embeddings = F.dropout(
+                embeddings, p=self.dropout_prob, training=self.training
+            )
         if return_hidden:
-            return x
+            return torch.cat((x, embeddings), dim=1)
         else:
-            return self.fc(x)
+            return self.fc(torch.cat((x, embeddings), dim=1))
