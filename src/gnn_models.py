@@ -50,6 +50,7 @@ class GraphSAGE(torch.nn.Module):
         self.in_channels = in_channels
         self.hidden_channels = hidden_channels
         self.out_channels = out_channels
+        self.n_hops = n_hops
 
         # list of conv layers
         self.convs = nn.ModuleList()

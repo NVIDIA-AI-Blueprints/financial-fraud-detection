@@ -3,8 +3,6 @@ FROM gitlab-master.nvidia.com:5005/dl/dgx/pyg:25.01-py3-devel
 
 # Install pydantic, shap and captum using pip.
 RUN pip install pydantic
-RUN pip install shap
-RUN pip install captum
 
 # Set the working directory inside the container to /app.
 # All subsequent commands (e.g., COPY, RUN) will be executed relative to this directory.

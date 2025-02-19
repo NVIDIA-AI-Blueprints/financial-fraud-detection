@@ -1,10 +1,14 @@
 import os
-
+import shutil
 import torch
 import xgboost as xgb
 
 from src.gnn_models import GraphSAGE
-from utils.proto_text_generator import generate_xgb_pbtxt, generate_gnn_pbtxt
+from utils.proto_text_generator import (
+    generate_xgb_pbtxt,
+    generate_gnn_pbtxt,
+    generate_python_backend_pbtxt,
+)
 
 
 def create_triton_repo_for_gnn_based_xgboost(
@@ -107,6 +111,7 @@ def create_triton_repo_for_gnn_based_xgboost(
     generate_xgb_pbtxt(
         xgb_model_file_name,
         model.hidden_channels,
+        1,
         decision_threshold,
         os.path.join(xgb_repository_path, "config.pbtxt"),
     )
@@ -121,10 +126,10 @@ def create_triton_repo_for_xgboost(
     model_repository_name: str = "model_repository",
 ):
     """
-    Create a Triton Inference Server model repository containing both a GraphSAGE and an XGBoost model.
+    Create a Triton Inference Server model repository containing an XGBoost model.
 
     This function generates a directory structure compatible with Triton Inference Server that includes
-    the artifacts for two models: a GraphSAGE (GNN) model and an XGBoost model. This repository can then
+    a model file and config protocol buffer text for an XGBoost model. This repository can then
     be deployed with Triton Inference Server for serving predictions.
 
     Args:
@@ -158,6 +163,73 @@ def create_triton_repo_for_xgboost(
     generate_xgb_pbtxt(
         xgb_model_file_name,
         nr_input_features,
+        1,
         decision_threshold,
         os.path.join(xgb_repository_path, "config.pbtxt"),
+    )
+
+
+def create_repo_for_python_backend(
+    gnn_model: GraphSAGE,
+    xgb_model: xgb.Booster,
+    output_dir: str,
+    gnn_sate_dict_filename: str,
+    xgb_model_filename: str,
+    model_repository_name: str = "python_backend_model_repository",
+    model_name: str = "prediction_and_shapley",
+):
+    """
+    Create a Triton Inference Server model repository for python backed, containing a GraphSAGE and an XGBoost model.
+
+    Args:
+
+        xgb_model (xgb.Booster):
+            An XGBoost model instance that will produce fraud scores based on embeddings produced
+            by the GraphSAGE model
+        output_dir (str):
+            The path to the directory the model repository will be saved.
+        xgb_model_file_name (str):
+            The filename to save the XGBoost model.
+        decision_threshold (float):
+            A threshold value applied during inference to determine the final decision.
+        model_repository_name (str, optional):
+            The name of the model repository directory. Defaults to "model_repository".
+    """
+
+    python_backend_repository_path = os.path.join(
+        output_dir, model_repository_name, model_name
+    )
+    model_dir = os.path.join(python_backend_repository_path, "1")
+    os.makedirs(model_dir, exist_ok=True)
+
+    path_to_state_dict = os.path.join(model_dir, gnn_sate_dict_filename)
+    path_to_xgboost_model = os.path.join(model_dir, xgb_model_filename)
+
+    print(
+        f"------Saving model repository for python backend in {os.path.join(output_dir, model_repository_name)}-----"
+    )
+
+    torch.save(gnn_model.state_dict(), path_to_state_dict)
+    print(f"\nSaved GraphSAGE model state dict to {path_to_state_dict}")
+
+    xgb_model.save_model(path_to_xgboost_model)
+    print(f"\nSaved XGBoost model to {path_to_xgboost_model}")
+
+    current_directory = os.path.dirname(os.path.abspath(__file__))
+
+    shutil.copy(
+        os.path.join(current_directory, "python_backend_model.py"),
+        os.path.join(model_dir, "model.py"),
+    )
+
+    generate_python_backend_pbtxt(
+        model_name,
+        gnn_sate_dict_filename,
+        xgb_model_filename,
+        gnn_model.in_channels,
+        gnn_model.hidden_channels,
+        gnn_model.out_channels,
+        gnn_model.n_hops,
+        1,
+        os.path.join(python_backend_repository_path, "config.pbtxt"),
     )
