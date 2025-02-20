@@ -209,7 +209,6 @@ def run_sg_xgboost_training(
     xgb_model, nr_input_features = tran_sg_xgboost(
         hyperparameter_list, data_dir, model_dir, model_file_name
     )
-    # evaluate_on_unseen_data(xgb_model, data_dir)
 
     create_triton_repo_for_xgboost(
         xgb_model,

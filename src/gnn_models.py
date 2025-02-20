@@ -59,8 +59,9 @@ class GraphSAGE(torch.nn.Module):
 
     def forward(self, x, edge_index, return_hidden: bool = False):
 
+        embeddings = x.clone()
         for conv in self.convs:
-            embeddings = conv(x, edge_index)
+            embeddings = conv(embeddings, edge_index)
             embeddings = F.relu(embeddings)
             embeddings = F.dropout(
                 embeddings, p=self.dropout_prob, training=self.training

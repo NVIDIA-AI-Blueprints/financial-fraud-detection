@@ -1115,7 +1115,6 @@ def run_sg_embedding_based_xgboost(
             random_state=42,
         )
 
-    # evaluate_on_unseen_data(embedder_model, xgb_model, dataset_root)
     from utils.triton_model_repo_generator import (
         create_triton_repo_for_gnn_based_xgboost,
         create_repo_for_python_backend,
