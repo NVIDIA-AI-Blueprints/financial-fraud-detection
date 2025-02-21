@@ -5,7 +5,7 @@
 # international Copyright laws.
 
 # Use pyg base image
-FROM gitlab-master.nvidia.com:5005/dl/dgx/pyg:25.01-py3-devel
+FROM nvcr.io/nvidia/pyg:25.01-py3
 
 # Install pydantic, shap and captum using pip.
 RUN pip install pydantic
