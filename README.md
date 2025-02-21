@@ -33,8 +33,8 @@ Based on user provided training configuration, the NIM first builds a GNN model 
 Clone the repository and build the Docker image by running the following commands:
 ```sh
  git clone https://gitlab-master.nvidia.com/RAPIDS/financial-fraud-training.git
- cd graph-nims
- docker build --no-cache -t model_training_nim .
+ cd financial-fraud-training
+ docker build --no-cache -t financial-fraud-training .
  ```
 
 
@@ -218,7 +218,7 @@ NOTE: As of now, the NIM only supports single-gpu training and hence the `gpu` f
 Execute the following command to run the training inside the Docker container. Make sure to replace `<path_to_data_dir_on_host>`, `<path_to_model_output_dir_on_host>`, and `<path_to_training_config_json_file>` with the actual paths to your input data directory, the output directory where the data should be saved, and the configuration file, respectively.
 
  ```sh
- docker run --cap-add SYS_NICE -it --rm --gpus "device=0" -v <path_to_data_dir_on_host>:/data -v <path_to_model_output_dir_on_host>:/trained_models -v <path_to_training_config_json_file>:/app/config.json training_nim --config /app/config.json
+ docker run --cap-add SYS_NICE -it --rm --gpus "device=0" -v <path_to_data_dir_on_host>:/data -v <path_to_model_output_dir_on_host>:/trained_models -v <path_to_training_config_json_file>:/app/config.json financial-fraud-training --config /app/config.json
 ```
 
 #### Command Explanation
@@ -230,7 +230,7 @@ Execute the following command to run the training inside the Docker container. M
     -v <path_to_data_dir_on_host>:/data: Mounts your local data directory into the container at /data.
     -v <path_to_model_output_dir_on_host>:/trained_models: Mounts your output directory the models will be saved into the container at path /trained_models.
     -v <path_to_training_config_json_file>:/app/config.json: Mounts your local training configuration JSON file into the container at /app/config.json
-    training_nim: Name of NIM container.
+    financial-fraud-training: Name of NIM container.
     --config /app/config.json: Passes the configuration file path to the training code inside the container.
 
 According the example training configurations show above, training data must be mounted under `/data` within the container.
@@ -239,7 +239,7 @@ According the example training configurations show above, training data must be 
 For example, for the following concrete docker run command,
 
 ```sh
-docker run --cap-add SYS_NICE -it --rm --gpus "device=0" -v /home/user/data/TabFormer:/data -v /home/user/deploy/models:/trained_models -v ./training_configuration.json:/app/config.json training_nim --config /app/config.json
+docker run --cap-add SYS_NICE -it --rm --gpus "device=0" -v /home/user/data/TabFormer:/data -v /home/user/deploy/models:/trained_models -v ./training_configuration.json:/app/config.json financial-fraud-training --config /app/config.json
 ```
 
  `-v /home/user/data/TabFormer:/data` will mount your host directory `/home/user/data/TabFormer` under `/data` inside the container, and `-v ./training_configuration.json:/app/config.json` will mount `training_configuration.json`, from the current directory of your host machine, to `/app/config.json` within the container.
