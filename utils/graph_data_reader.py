@@ -1,7 +1,12 @@
+# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
+
+# This source code and/or documentation ("Licensed Deliverables") are
+# subject to NVIDIA intellectual property rights under U.S. and
+# international Copyright laws.
+
 import os
 import json
 import logging
-import argparse
 import pandas as pd
 import torch
 import torch.nn.functional as F
