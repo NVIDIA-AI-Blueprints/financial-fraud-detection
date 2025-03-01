@@ -98,8 +98,8 @@ Your data should be organized under a parent directory (for example, `data_root`
 
   ```sh
     {
-      "start": ST #start offset of the transaction node
-      "end": ET #end offset of the transaction node.
+      "start": ST #start offset of training nodes
+      "end": ET #end offset of training nodes
     }
   ```
 
