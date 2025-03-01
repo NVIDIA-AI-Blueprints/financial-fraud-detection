@@ -6,6 +6,7 @@
 
 import itertools
 import os
+import logging
 
 import cupy
 import cudf
@@ -36,14 +37,12 @@ def f1_eval_gpu(predictions, labels):
 def tran_sg_xgboost(
     param_combinations: List[XGBHyperparametersSingle],
     data_dir: str,
-    model_dir: str,
-    model_file_name: str,
     random_state: int = 42,
     decision_threshold: float = 0.5,
     verbose: bool = False,
 ):
 
-    print(f"\n-----Running XGBoost training-----")
+    logging.info(f"-----Running XGBoost training-----")
 
     dataset_dir = data_dir
     xgb_data_dir = os.path.join(dataset_dir, "xgb")
@@ -105,8 +104,7 @@ def tran_sg_xgboost(
         score = bst.best_score
 
         if verbose:
-            print(params)
-            print(
+            logging.info(
                 f"Trained for {bst.best_iteration} rounds, last few train losses are"
                 f"{evals_result['train']['logloss'][-3:]} and validation losses are"
                 f"{evals_result['val']['logloss'][-3:]}"
@@ -119,7 +117,7 @@ def tran_sg_xgboost(
             best_num_boost_round = bst.best_iteration
 
     if len(param_combinations) > 1:
-        print(f"Best hyperparameters {best_params}")
+        logging.info(f"Best hyperparameters {best_params}")
 
     y_val_pred = (bst.predict(deval) >= decision_threshold).astype(int)
     f1_eval_gpu(y_val_pred, deval.get_label())
@@ -131,10 +129,6 @@ def tran_sg_xgboost(
     )
     final_model = xgb.train(best_params, dtrain, num_boost_round=best_num_boost_round)
 
-    # Save the model
-    # os.makedirs(model_dir, exist_ok=True)
-    # final_model.save_model(os.path.join(model_dir, model_file_name))
-    # print(f"\nSaved XGBoost model to {os.path.join(model_dir, model_file_name)}")
     return final_model, nr_input_features
 
 
@@ -168,12 +162,11 @@ def evaluate_on_unseen_data(
     # Confusion Matrix
     conf_mat = confusion_matrix(y_test, y_pred)
 
-    print(f"Accuracy: {accuracy:.4f}")
-    print(f"Precision: {precision:.4f}")
-    print(f"Recall: {recall:.4f}")
-    print(f"F1 Score: {f1:.4f}")
-    print("Confusion Matrix:")
-    print(conf_mat)
+    logging.info(f"Accuracy: {accuracy:.4f}")
+    logging.info(f"Precision: {precision:.4f}")
+    logging.info(f"Recall: {recall:.4f}")
+    logging.info(f"F1 Score: {f1:.4f}")
+    logging.info(f"Confusion Matrix: {conf_mat}")
 
 
 def run_sg_xgboost_training(
@@ -205,11 +198,8 @@ def run_sg_xgboost_training(
     elif isinstance(input_config.hyperparameters, XGBHyperparametersSingle):
         hyperparameter_list.append(input_config.hyperparameters)
 
+    xgb_model, nr_input_features = tran_sg_xgboost(hyperparameter_list, data_dir)
     model_file_name = f"{input_config.kind}_{model_index}.json"
-    xgb_model, nr_input_features = tran_sg_xgboost(
-        hyperparameter_list, data_dir, model_dir, model_file_name
-    )
-
     create_triton_repo_for_xgboost(
         xgb_model,
         model_dir,

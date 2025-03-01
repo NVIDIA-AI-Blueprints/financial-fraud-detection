@@ -6,6 +6,7 @@
 
 import os
 import shutil
+import logging
 import torch
 import xgboost as xgb
 
@@ -97,15 +98,15 @@ def create_triton_repo_for_gnn_based_xgboost(
         },
     )
 
-    print(
-        f"------Saving model repository in {os.path.join(output_dir, model_repository_name)}-----"
+    logging.info(
+        f"------Saving ONNX model repository in {os.path.join(output_dir, model_repository_name)}-----"
     )
 
-    print(f"\nSaved GraphSAGE model to {path_to_onnx_model}")
+    logging.info(f"Saved GraphSAGE model to {path_to_onnx_model}")
 
     xgb_model.save_model(path_to_xgboost_model)
 
-    print(f"\nSaved XGBoost model to {path_to_xgboost_model}")
+    logging.info(f"Saved XGBoost model to {path_to_xgboost_model}")
 
     generate_gnn_pbtxt(
         gnn_file_name,
@@ -158,13 +159,13 @@ def create_triton_repo_for_xgboost(
     os.makedirs(xgb_model_dir, exist_ok=True)
     path_to_xgboost_model = os.path.join(xgb_model_dir, xgb_model_file_name)
 
-    print(
+    logging.info(
         f"------Saving model repository in {os.path.join(output_dir, model_repository_name)}-----"
     )
 
     xgb_model.save_model(path_to_xgboost_model)
 
-    print(f"\nSaved XGBoost model to {path_to_xgboost_model}")
+    logging.info(f"Saved XGBoost model to {path_to_xgboost_model}")
 
     generate_xgb_pbtxt(
         xgb_model_file_name,
@@ -211,15 +212,15 @@ def create_repo_for_python_backend(
     path_to_state_dict = os.path.join(model_dir, gnn_sate_dict_filename)
     path_to_xgboost_model = os.path.join(model_dir, xgb_model_filename)
 
-    print(
+    logging.info(
         f"------Saving model repository for python backend in {os.path.join(output_dir, model_repository_name)}-----"
     )
 
     torch.save(gnn_model.state_dict(), path_to_state_dict)
-    print(f"\nSaved GraphSAGE model state dict to {path_to_state_dict}")
+    logging.info(f"Saved GraphSAGE model state dict to {path_to_state_dict}")
 
     xgb_model.save_model(path_to_xgboost_model)
-    print(f"\nSaved XGBoost model to {path_to_xgboost_model}")
+    logging.info(f"Saved XGBoost model to {path_to_xgboost_model}")
 
     current_directory = os.path.dirname(os.path.abspath(__file__))
 

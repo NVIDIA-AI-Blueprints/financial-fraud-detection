@@ -37,32 +37,112 @@ Clone the repository and build the Docker image by running the following command
  docker build --no-cache -t financial-fraud-training .
  ```
 
+---
 
-## 2. Make sure that data is organized correctly
-To train a GNN model, the dataset needs to be organized in the following structure:
+## 2. Graph Data Organization
 
-```sh
-  ├── gnn
-  │   ├── edges.csv
-  │   ├── features.csv
-  │   ├── info.json
-  │   └── labels.csv
-```
-`edges.csv` must contain the graph topology in COO format. Each line contains source and destination vertex id, and an optional edge attribute NOTE that the vertex IDs must be zero-based.
-
-`src, dst, optional-attribute-value`
-
-`info.json`, a json file, containing the number of transaction nodes, with key `NUM_TRANSACTION_NODES`.
+Your data should be organized under a parent directory (for example, `data_root`) with the following subdirectories:
 
 ```sh
-  {
-      "NUM_TRANSACTION_NODES": 1024
-  }
+    data_root/
+    ├── nodes/
+    └── edges/
 ```
 
-`features.csv` must contain the features for each of the graph nodes, indexed by the vertex id. !Important: The first row of `features.csv` must contain name of the features, separated by commas.
 
-`labels.csv` must contain 0 (non-fraud) or 1 (fraud) on each line, corresponding to each graph node, indicating if a transaction is fraud or not.
+- **nodes/**: Contains the files for the single node type.
+- **edges/**: Contains files for the edges connecting nodes.
+
+---
+
+### Nodes Directory
+
+#### File Naming Convention
+
+
+- **Node Feature File:**
+  Name the file simply as `node.<ext>`, where `<ext>` is one of the supported file formats (CSV, Parquet, or ORC).
+  Examples:
+  - `node.csv`
+
+- **Node Label File:**
+  Provide the labels for your nodes in a file named `node_label.<ext>`.
+  Examples:
+  - `node_label.csv`
+
+- **Optional JSON file containing the start and end offset of the target nodes in node.<ext> file**
+  - `offset_range_of_training_node.json`
+
+  ```
+
+
+#### File Contents
+
+- **Feature File (`node.<ext>`):**
+  This file should contain a table of node attributes (features).
+  - Each row corresponds to one node.
+  - The number of columns is the feature dimension.
+
+  NOTE: If you have nodes of different types, it's up to you to decide how to prepare and align their features; however, each row must contain the same number of feature entries.
+
+
+- **Label File (`node_label.<ext>`, Optional):**
+  This file should contain the ground-truth labels for the nodes.
+  - It is expected to have one column with any name, with the number of rows matching the feature file.
+
+
+- **Optional JSON file containing the start and end offset of the target nodes in node.<ext> (`offset_range_of_training_node.json`)**
+  This file should specify the start and end offsets for the training node—a contiguous range—in node.<ext>. In other words, it defines the range of node offsets that the model will be trained on.
+
+  For example, for credit card fraud detection, if your `node.<ext>` file includes features for User, Merchant, and Transaction nodes, and your goal is to predict whether a transaction is fraudulent, you might be interested to train on transaction nodes only.
+
+  ```sh
+    {
+      "start": ST #start offset of the transaction node
+      "end": ET #end offset of the transaction node.
+    }
+  ```
+
+  If no file is provided, the models will be trained using the entire range.
+
+---
+
+### Edges Directory
+
+#### File Naming Convention
+
+For edges connecting nodes of the single node type, you should have:
+
+- **Main Edge File:**
+  Name the file as `node_to_node.<ext>`, where `<ext>` is one of the supported file formats (CSV, Parquet, or ORC).
+  Examples:
+  - `node_to_node.csv`
+
+#### File Contents
+
+- **Main Edge File (`node_to_node.<ext>`):**
+  This file must contain at least two columns:
+  - `src`: The column containing indices of the source nodes
+  - `dst`: The column containing indices of the destination nodes.
+  - The index of a node is determined by its position in the node feature file `node.<ext>` and is zero-based.
+  - The number of rows corresponds to the number of edges.
+  NOTE: The column containing source and destination nodes must be named `src` and `dst`, respectively.
+
+---
+
+
+### Example Data Layout
+
+```sh
+credit_card_transaction_data/
+├── nodes/
+│ ├── node.csv
+│ └── node_label.csv
+│ └── offset_range_of_training_node.json
+└── edges/
+├── node_to_node.csv
+```
+
 
 
 ## 3. Write your training configuration

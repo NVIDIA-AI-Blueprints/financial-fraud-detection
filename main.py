@@ -3,7 +3,9 @@
 # This source code and/or documentation ("Licensed Deliverables") are
 # subject to NVIDIA intellectual property rights under U.S. and
 # international Copyright laws.
-
+import os
+import sys
+import logging
 import argparse
 import json
 
@@ -14,7 +16,22 @@ from src.train_gnn_based_xgboost import run_sg_embedding_based_xgboost
 from src.train_xgboost import run_sg_xgboost_training
 
 
+def setup_logging(level=logging.INFO):
+    """Configure logging format and level."""
+    logging.basicConfig(
+        level=level,
+        format="%(asctime)s [%(levelname)s] %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S",
+    )
+
+
+setup_logging()
+
+
 def load_config(path: str) -> FullConfig:
+    """
+    Read training configuration file.
+    """
     with open(path, "r") as f:
         data = json.load(f)
     adapter = TypeAdapter(FullConfig)
@@ -26,23 +43,40 @@ if __name__ == "__main__":
 
     try:
         parser = argparse.ArgumentParser(
-            description="Path to JSON training configuration file."
+            description="This program requires a training configuration file in JSON format "
+            "Provide the path to your training configuration file using the --config option.",
+            usage="--config /path/to/training_config.json",
         )
+
         parser.add_argument(
-            "--config", help="Path to the JSON training configuration file."
+            "--config",
+            type=str,
+            required=True,
+            help="Path to a training configuration JSON file",
         )
 
         args = parser.parse_args()
-        config_file = args.config
 
-        configuration = load_config(config_file)
+        if not args.config:
+            logging.error("--config argument is required.")
+            sys.exit(0)
+
+        if not os.path.exists(args.config):
+            logging.error(f" {args.config} file doesn't exist")
+            sys.exit(0)
+
+        logging.info(f"Using configuration file: {args.config}")
+
+        configuration = load_config(args.config)
 
         # If we reach here, no ValidationError occurred
-        print("The provided training configuration has been successfully validated.")
+        logging.info(
+            "The provided training configuration has been successfully validated."
+        )
 
     except (ValueError, ValidationError) as e:
-        print("\nValidation error or incorrect format:")
-        print(e)
+        logging.error("Validation of the input training configuration file failed.")
+        logging.error(f"Full validation error message = {e}")
         exit(0)
 
     for idx, user_config in enumerate(configuration.models):
@@ -56,7 +90,9 @@ if __name__ == "__main__":
                 )
             else:
                 assert user_config.gpu == GPUOption.MULTIGPU.value
-                print("------- Multi-GPU XGBoost traning is not yet ready.-------")
+                logging.info(
+                    "------- Multi-GPU XGBoost traning is not yet ready.-------"
+                )
         elif user_config.kind == ModelType.GRAPH_SAGE_XGB.value:
             if user_config.gpu == GPUOption.SINGLE.value:
                 run_sg_embedding_based_xgboost(
@@ -67,4 +103,4 @@ if __name__ == "__main__":
                 )
             else:
                 assert user_config.gpu == GPUOption.MULTIGPU.value
-                print("------- GraphSAGE MG training is not yet ready.-------")
+                logging.info("------- GraphSAGE MG training is not yet ready.-------")

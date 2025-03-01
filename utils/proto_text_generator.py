@@ -4,6 +4,8 @@
 # subject to NVIDIA intellectual property rights under U.S. and
 # international Copyright laws.
 
+import logging
+
 
 def generate_xgb_pbtxt(
     model_file_name,
@@ -48,7 +50,7 @@ parameters [
     # Write the PBtx content to the specified file.
     with open(path_to_xgb_pbtx, "w") as file:
         file.write(pbtx_content)
-    print(f"\nSaved XGBoost model config to {path_to_xgb_pbtx}")
+    logging.info(f"Saved XGBoost model config to {path_to_xgb_pbtx}")
 
 
 def generate_gnn_pbtxt(
@@ -86,7 +88,7 @@ instance_group [{{ kind: KIND_GPU }}]
     with open(path_to_gnn_pbtx, "w") as file:
         file.write(pbtx_content)
 
-    print(f"\nSaved GraphSAGE model config to {path_to_gnn_pbtx}")
+    logging.info(f"Saved GraphSAGE model config to {path_to_gnn_pbtx}")
 
 
 def generate_python_backend_pbtxt(
@@ -192,4 +194,4 @@ parameters {{
     with open(path_to_gnn_pbtx, "w") as file:
         file.write(pbtx_content)
 
-    print(f"\nSaved GraphSAGE model config to {path_to_gnn_pbtx}")
+    logging.info(f"Saved GraphSAGE model config to {path_to_gnn_pbtx}")
