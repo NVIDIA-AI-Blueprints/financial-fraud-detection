@@ -15,7 +15,9 @@ from src.validate_and_launch import validate_config_and_run_training
 from ogb.nodeproppred import PygNodePropPredDataset
 
 
-def ogbn_proteins_root_dir(root_dir: str = "tests/dataset/ogbn-proteins"):
+def save_ogbn_proteins_data_for_node_prediction(
+    root_dir: str = "tests/dataset/ogbn-proteins",
+):
     """
     A session-scoped fixture that:
       1) Loads the ogbn-proteins dataset (if needed).
@@ -25,7 +27,7 @@ def ogbn_proteins_root_dir(root_dir: str = "tests/dataset/ogbn-proteins"):
                     node.parquet       (Nx1 'species')
                     node_label.parquet (Nx1 'label')
                 edges/
-                    node_to_not.parquet (src,dst)
+                    node_to_node.parquet (src,dst)
       3) Ensures species & label each have N rows (Nx1).
       4) Returns the <root_dir> path (str).
 
@@ -38,7 +40,7 @@ def ogbn_proteins_root_dir(root_dir: str = "tests/dataset/ogbn-proteins"):
 
     species_path = os.path.join(node_dir, "node.parquet")
     label_path = os.path.join(node_dir, "node_label.parquet")
-    edge_path = os.path.join(edge_dir, "node_to_not.parquet")
+    edge_path = os.path.join(edge_dir, "node_to_node.parquet")
 
     # Check if files already exist to skip re-generation
     if (
@@ -46,8 +48,7 @@ def ogbn_proteins_root_dir(root_dir: str = "tests/dataset/ogbn-proteins"):
         and os.path.exists(label_path)
         and os.path.exists(edge_path)
     ):
-        logging.info(
-            "OGBN-Proteins Parquet files already exist. Skipping generation.")
+        logging.info("OGBN-Proteins Parquet files already exist. Skipping generation.")
         return root_dir  # Just return the root directory
 
     # Otherwise, generate them
@@ -113,30 +114,28 @@ def ogbn_proteins_root_dir(root_dir: str = "tests/dataset/ogbn-proteins"):
     logging.info("Wrote Nx1 species to:       %s", species_path)
     logging.info("Wrote Nx1 label   to:       %s", label_path)
     logging.info("Wrote edges (src,dst) to:    %s", edge_path)
-    logging.info(
-        "OGBN-Proteins Parquet generation complete under '%s'.",
-        root_dir)
+    logging.info("OGBN-Proteins Parquet generation complete under '%s'.", root_dir)
 
     return root_dir
 
 
 def test_process_protein_data_dir(tmp_path: Path):
-    """
-    Tests the function 'process_protein_data_dir' which only takes a root directory.
-    We rely on the ogbn_proteins_root_dir fixture to ensure the data is present and Nx1.
-    """
 
-    data_path = ogbn_proteins_root_dir("tests/dataset/ogbn-proteins")
-
-    logging.info(
-        "Testing process_protein_data_dir with root dir: %s",
-        data_path)
+    data_path = save_ogbn_proteins_data_for_node_prediction(
+        "tests/dataset/ogbn-proteins"
+    )
 
     logging.info("Dataset dir %s", data_path)
-    logging.info("Output_dir %s", str(tmp_path))
+    logging.info(
+        f"Trained models and protobuf config files for deploying "
+        f"on Triton Inference Server will be saved under %s",
+        str(tmp_path),
+    )
 
+    output_dir = tmp_path / "output"
+    output_dir.mkdir()
     config = {
-        "paths": {"data_dir": "/data", "output_dir": "/trained_models"},
+        "paths": {"data_dir": data_path, "output_dir": str(output_dir)},
         "models": [
             {
                 "kind": "GraphSAGE_XGBoost",
