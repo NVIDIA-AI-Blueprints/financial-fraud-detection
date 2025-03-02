@@ -34,10 +34,14 @@ class XGBHyperparametersSingle(StrictBaseModel):
     Hyperparameters for XGB when each parameter is a single numeric value.
     """
 
-    max_depth: int = Field(..., description="The maximum depth of each tree. e.g., 3")
-    num_parallel_tree: int = Field(..., description="Size of the forest being trained.")
-    num_boost_round: int = Field(..., description="Number of boosting rounds. e.g., 1")
-    learning_rate: float = Field(..., description="Boosting learning rate. e.g., 0.1")
+    max_depth: int = Field(...,
+                           description="The maximum depth of each tree. e.g., 3")
+    num_parallel_tree: int = Field(...,
+                                   description="Size of the forest being trained.")
+    num_boost_round: int = Field(...,
+                                 description="Number of boosting rounds. e.g., 1")
+    learning_rate: float = Field(...,
+                                 description="Boosting learning rate. e.g., 0.1")
     gamma: float = Field(
         ...,
         description="Minimum loss reduction required to make a partition. e.g., 0.0",
@@ -108,8 +112,10 @@ class GraphSAGEHyperparametersSingle(StrictBaseModel):
     hidden_channels: int = Field(
         ..., description="Number of hidden channels (e.g., 32)."
     )
-    n_hops: int = Field(..., description="Number of hop values or layers (e.g., 2).")
-    dropout_prob: float = Field(..., description="Dropout probability (e.g., 0.2).")
+    n_hops: int = Field(...,
+                        description="Number of hop values or layers (e.g., 2).")
+    dropout_prob: float = Field(...,
+                                description="Dropout probability (e.g., 0.2).")
     batch_size: int = Field(..., description="Batch size (e.g., 1024).")
     fan_out: int = Field(
         ..., description="Number of neighbors to sample for each node (e.g., 16)."
@@ -118,11 +124,13 @@ class GraphSAGEHyperparametersSingle(StrictBaseModel):
         default="f1",
         description="The metric to be used. Must be one of: recall, f1, or precision.",
     )
-    num_epochs: int = Field(4, ge=1, description="Number of epochs to train the model.")
+    num_epochs: int = Field(
+        4, ge=1, description="Number of epochs to train the model.")
     learning_rate: float = Field(
         0.005, gt=0, description="Learning rate (e.g., 0.005)."
     )
-    weight_decay: float = Field(1e-5, ge=0, description="Learning rate (e.g., 0.005).")
+    weight_decay: float = Field(
+        1e-5, ge=0, description="Learning rate (e.g., 0.005).")
 
 
 class GraphSAGEHyperparametersList(StrictBaseModel):
@@ -258,7 +266,8 @@ class Paths(StrictBaseModel):
     """
 
     data_dir: str = Field(..., description="Path to the input data directory.")
-    output_dir: str = Field(..., description="Path to the output models directory.")
+    output_dir: str = Field(...,
+                            description="Path to the output models directory.")
 
 
 class FullConfig(StrictBaseModel):
@@ -266,5 +275,7 @@ class FullConfig(StrictBaseModel):
     Wrapper model that includes `paths` and a list of `models`.
     """
 
-    paths: Paths = Field(..., description="Directory paths for data and models.")
-    models: List[ModelConfig] = Field(..., description="List of model configurations.")
+    paths: Paths = Field(...,
+                         description="Directory paths for data and models.")
+    models: List[ModelConfig] = Field(...,
+                                      description="List of model configurations.")

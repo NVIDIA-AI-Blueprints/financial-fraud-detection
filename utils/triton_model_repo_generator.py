@@ -69,11 +69,14 @@ def create_triton_repo_for_gnn_based_xgboost(
 
     return_hidden = True
 
-    # Prepare the example input as a tuple (or list) matching the model's forward signature
+    # Prepare the example input as a tuple (or list) matching the model's
+    # forward signature
     example_input = (x, edge_index, return_hidden)
 
-    gnn_repository_path = os.path.join(output_dir, model_repository_name, "model")
-    xgb_repository_path = os.path.join(output_dir, model_repository_name, "xgboost")
+    gnn_repository_path = os.path.join(
+        output_dir, model_repository_name, "model")
+    xgb_repository_path = os.path.join(
+        output_dir, model_repository_name, "xgboost")
 
     gnn_model_dir = os.path.join(gnn_repository_path, "1")
     xgb_model_dir = os.path.join(xgb_repository_path, "1")
@@ -154,7 +157,8 @@ def create_triton_repo_for_xgboost(
             The name of the model repository directory. Defaults to "model_repository".
     """
 
-    xgb_repository_path = os.path.join(output_dir, model_repository_name, "xgboost")
+    xgb_repository_path = os.path.join(
+        output_dir, model_repository_name, "xgboost")
     xgb_model_dir = os.path.join(xgb_repository_path, "1")
     os.makedirs(xgb_model_dir, exist_ok=True)
     path_to_xgboost_model = os.path.join(xgb_model_dir, xgb_model_file_name)

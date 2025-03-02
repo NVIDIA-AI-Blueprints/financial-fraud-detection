@@ -4,44 +4,34 @@
 # subject to NVIDIA intellectual property rights under U.S. and
 # international Copyright laws.
 
-
-import os
 import logging
-
+import os
+import random
 from collections import namedtuple
-from typing import Tuple, Union
 from enum import Enum
+from typing import Tuple, Union
 
-# GPU-accelerated libraries (torch, cupy, cudf, rmm)
-import torch
 import cupy
-import cudf
-import rmm
-from cuml.metrics import confusion_matrix
+import numpy as np
+import torch
+import xgboost as xgb
 
+import rmm
 from rmm.allocators.cupy import rmm_cupy_allocator
 from rmm.allocators.torch import rmm_torch_allocator
 
-# Reinitialize RMM and set allocators to manage memory efficiently on GPU
 rmm.reinitialize(devices=[0], pool_allocator=True, managed_memory=True)
 cupy.cuda.set_allocator(rmm_cupy_allocator)
 torch.cuda.memory.change_current_allocator(rmm_torch_allocator)
 
-# PyTorch Geometric and cuGraph libraries for GNNs and graph handling
-import cugraph_pyg
-from cugraph_pyg.loader import NeighborLoader
-import torch_geometric
+import torch.nn.functional as F  # noqa: E402
+import cugraph_pyg  # noqa: E402
+from cugraph_pyg.loader import NeighborLoader  # noqa: E402
 
-
-# Enable GPU memory spilling to CPU with cuDF to handle larger datasets
 from cugraph.testing.mg_utils import enable_spilling  # noqa: E402
 
 enable_spilling()
 
-import xgboost as xgb
-
-import numpy as np
-import random
 
 from sklearn.metrics import (
     accuracy_score,
@@ -63,6 +53,7 @@ from src.config_schema import (
 )
 from src.gnn_models import GraphSAGE
 from utils.graph_data_reader import read_graph_data
+
 
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -245,7 +236,11 @@ def maximize_f1(model, loader):
         for batch in loader:
 
             batch_size = batch.batch_size
-            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
+            out = model(
+                batch.x.to(
+                    torch.float32),
+                batch.edge_index)[
+                :batch_size]
             pred_probs = torch.softmax(out, dim=1)[:, 1]
             y = batch.y[:batch_size].view(-1).to(torch.long)
             probs.append(pred_probs.cpu())
@@ -258,7 +253,8 @@ def maximize_f1(model, loader):
     # Compute F1 Score for Each Threshold
     f1_scores = []
     for threshold in thresholds:
-        # Convert probabilities to binary predictions based on the current threshold
+        # Convert probabilities to binary predictions based on the current
+        # threshold
         y_pred = (probs >= threshold).astype(int)
         # Compute the F1 score for these predictions
         f1 = f1_score(targets, y_pred)
@@ -297,7 +293,11 @@ def tune_threshold(model, loader, desired_recall=0.90):
         for batch in loader:
 
             batch_size = batch.batch_size
-            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
+            out = model(
+                batch.x.to(
+                    torch.float32),
+                batch.edge_index)[
+                :batch_size]
             pred_probs = torch.softmax(out, dim=1)[:, 1]
             y = batch.y[:batch_size].view(-1).to(torch.long)
             probs.append(pred_probs.cpu())
@@ -305,7 +305,8 @@ def tune_threshold(model, loader, desired_recall=0.90):
     probs = torch.cat(probs).numpy()
     targets = torch.cat(targets).numpy()
 
-    precision_vals, recall_vals, thresholds = precision_recall_curve(targets, probs)
+    precision_vals, recall_vals, thresholds = precision_recall_curve(
+        targets, probs)
 
     # Find the threshold closest to the desired recall
     idx = np.where(recall_vals >= desired_recall)[0]
@@ -353,7 +354,11 @@ def evaluate_gnn(model, loader, metric=Metric.F1.value) -> float:
         for batch in loader:
 
             batch_size = batch.batch_size
-            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
+            out = model(
+                batch.x.to(
+                    torch.float32),
+                batch.edge_index)[
+                :batch_size]
             predictions = out.argmax(dim=1)
             y = batch.y[:batch_size].view(-1).to(torch.long)
 
@@ -397,7 +402,11 @@ def validation_loss(model, loader, criterion) -> float:
         for batch in loader:
             batch_count += 1
             batch_size = batch.batch_size
-            out = model(batch.x.to(torch.float32), batch.edge_index)[:batch_size]
+            out = model(
+                batch.x.to(
+                    torch.float32),
+                batch.edge_index)[
+                :batch_size]
             y = batch.y[:batch_size].view(-1).to(torch.long)
             loss = criterion(out, y)
             total_loss += loss.item()
@@ -446,7 +455,10 @@ def train_xgboost(
     }
 
     # Train the XGBoost model
-    bst = xgb.train(param, dtrain, num_boost_round=hyper_params_xgb.num_boost_round)
+    bst = xgb.train(
+        param,
+        dtrain,
+        num_boost_round=hyper_params_xgb.num_boost_round)
 
     return bst
 
@@ -493,6 +505,35 @@ def evaluate_xgboost(bst, embeddings, labels, decision_threshold=0.5):
 def create_cugraph(dataset_dir, use_cross_weights=True, cross_weights=None):
 
     dataset, training_node_offset_range = read_graph_data(dataset_dir)
+
+    if dataset.x is None:
+        logging.error("Data object has no 'x' attribute. Exiting.")
+        sys.exit(1)
+
+    if dataset.y is None:
+        logging.error(
+            f"For node prediction task, labels should be specified in "
+            f"{dataset_dir}/nodes/node_label.<ext> file, but no such file found."
+        )
+        sys.exit(1)
+
+    if dataset.x.size(0) != dataset.y.size(0):
+
+        logging.error(
+            f"Mismatched sizes: x.size(0)={dataset.x.size(0)}, "
+            f"y.size(0)={dataset.y.size(0)}. Exiting."
+        )
+        logging.error(
+            f"Number of rows in {dataset_dir}/nodes/node.<ext> and "
+            f"{dataset_dir}/nodes/node_label.<ext> must be the same."
+        )
+
+        sys.exit(1)
+
+    logging.info(
+        f"Data object is valid: x.shape={tuple(dataset.x.size())}, "
+        f"y.shape={tuple(dataset.y.size())}"
+    )
 
     feature_store = cugraph_pyg.data.TensorDictFeatureStore()
     feature_store["node", "x", None] = dataset.x.to(device)
@@ -556,14 +597,18 @@ def k_fold_validation(
         training_nodes = start_end_offset_train_node + torch.cat(
             (
                 torch.arange(0, k * fold_size).unsqueeze(dim=0),
-                torch.arange((k + 1) * fold_size, num_training_nodes).unsqueeze(dim=0),
+                torch.arange(
+                    (k + 1) * fold_size,
+                    num_training_nodes).unsqueeze(
+                    dim=0),
             ),
             dim=1,
         ).squeeze(0)
 
         validation_nodes = torch.arange(k * fold_size, (k + 1) * fold_size)
 
-        # Create NeighborLoader for both training and testing (using cuGraph NeighborLoader)
+        # Create NeighborLoader for both training and testing (using cuGraph
+        # NeighborLoader)
         train_loader = NeighborLoader(
             data,
             num_neighbors=[h_params.fan_out, h_params.fan_out],
@@ -608,8 +653,10 @@ def k_fold_validation(
 
         # Train the GNN model
         for epoch in range(h_params.num_epochs):
-            train_loss = train_gnn(model, train_loader, optimizer, loss_function)
-            metric_value = evaluate_gnn(model, val_loader, metric=h_params.metric)
+            train_loss = train_gnn(
+                model, train_loader, optimizer, loss_function)
+            metric_value = evaluate_gnn(
+                model, val_loader, metric=h_params.metric)
 
             if verbose:
                 logging.info(
@@ -637,7 +684,8 @@ class EarlyStopping:
     Early stops the training if validation recall doesn't improve after a given patience.
     """
 
-    def __init__(self, patience=10, verbose=False, delta=0.0, path="best_model.pt"):
+    def __init__(self, patience=10, verbose=False,
+                 delta=0.0, path="best_model.pt"):
         """
         Args:
             patience (int): How long to wait after last time validation recall improved.
@@ -741,7 +789,11 @@ def train_with_specific_hyper_params(
     )
 
     for epoch in range(hyper_params_gnn.num_epochs):
-        train_loss = train_gnn(graph_sage_model, train_loader, optimizer, loss_function)
+        train_loss = train_gnn(
+            graph_sage_model,
+            train_loader,
+            optimizer,
+            loss_function)
         metric_value = evaluate_gnn(
             graph_sage_model, val_loader, metric=validation_metric
         )
@@ -770,9 +822,14 @@ def train_with_specific_hyper_params(
 
     # Finally train on validation data well
     for epoch in range(hyper_params_gnn.num_epochs):
-        train_loss = train_gnn(graph_sage_model, val_loader, optimizer, loss_function)
+        train_loss = train_gnn(
+            graph_sage_model,
+            val_loader,
+            optimizer,
+            loss_function)
 
-    # Train the XGBoost model based on embeddings produced by the GraphSAGE model
+    # Train the XGBoost model based on embeddings produced by the GraphSAGE
+    # model
     data_loader = NeighborLoader(
         data,
         num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
@@ -786,7 +843,10 @@ def train_with_specific_hyper_params(
     embeddings, labels = extract_embeddings(graph_sage_model, data_loader)
 
     # Train an XGBoost model on the extracted embeddings (on GPU)
-    bst = train_xgboost(embeddings.to(device), labels.to(device), hyper_params_xgb)
+    bst = train_xgboost(
+        embeddings.to(device),
+        labels.to(device),
+        hyper_params_xgb)
 
     return graph_sage_model, bst
 
@@ -899,7 +959,10 @@ def run_sg_embedding_based_xgboost(
     use_cross_weights = True
 
     data, num_features, num_classes, cross_wt_data, start_end_offset_train_node = (
-        create_cugraph(dataset_root, use_cross_weights=True, cross_weights=None)
+        create_cugraph(
+            dataset_root,
+            use_cross_weights=True,
+            cross_weights=None)
     )
 
     model_config = GraphSAGEModelConfig(
@@ -909,7 +972,8 @@ def run_sg_embedding_based_xgboost(
     # TODO: Consider exposing loss_function and early_stopping as well
 
     if use_cross_weights:
-        loss_function = torch.nn.CrossEntropyLoss(weight=cross_wt_data).to(device)
+        loss_function = torch.nn.CrossEntropyLoss(
+            weight=cross_wt_data).to(device)
     else:
         loss_function = torch.nn.CrossEntropyLoss(
             weight=torch.tensor([0.05, 0.95], dtype=torch.float32)

@@ -4,6 +4,7 @@
 # subject to NVIDIA intellectual property rights under U.S. and
 # international Copyright laws.
 
+import sys
 import os
 import json
 import logging
@@ -62,6 +63,9 @@ def load_nodes(node_dir: str, data: HeteroData) -> dict:
         ],
         key=str.lower,
     )
+    if len(node_files) == 0:
+        raise ValueError(f"'{node_dir}' does not contain any node.<ext> file.")
+
     node_meta = {}
     for i, file in enumerate(node_files):
         node_type = os.path.splitext(file)[0]
@@ -82,7 +86,10 @@ def load_nodes(node_dir: str, data: HeteroData) -> dict:
             raise e
 
         data[node_type].x = x
-        node_meta[node_type] = {"id": i, "num_nodes": num_nodes, "feat_dim": x.shape[1]}
+        node_meta[node_type] = {
+            "id": i,
+            "num_nodes": num_nodes,
+            "feat_dim": x.shape[1]}
         logging.info(
             f"Loaded node type '{node_type}': {num_nodes} nodes, feature dim {x.shape[1]} (id: {i})."
         )
@@ -94,7 +101,8 @@ def load_nodes(node_dir: str, data: HeteroData) -> dict:
             if os.path.exists(label_file):
                 try:
                     df_label = read_data(label_file)
-                    labels = torch.tensor(df_label.values.squeeze(), dtype=torch.long)
+                    labels = torch.tensor(
+                        df_label.values.squeeze(), dtype=torch.long)
                     if labels.dim() == 1:
                         labels = labels.unsqueeze(1)
                     data[node_type].y = labels
@@ -103,7 +111,8 @@ def load_nodes(node_dir: str, data: HeteroData) -> dict:
                     )
                     break
                 except Exception as e:
-                    logging.error(f"Error reading label file '{label_file}': {e}")
+                    logging.error(
+                        f"Error reading label file '{label_file}': {e}")
                     raise e
 
     logging.info(f"Node meta mapping: {node_meta}")
@@ -139,7 +148,8 @@ def load_edges(edge_dir: str, data: HeteroData) -> dict:
     edge_meta = {}
 
     # Process main edge files (exclude files with '_attr' or '_label').
-    main_edge_files = [f for f in edge_files if "_attr" not in f and "_label" not in f]
+    main_edge_files = [
+        f for f in edge_files if "_attr" not in f and "_label" not in f]
 
     for file in main_edge_files:
         base = os.path.splitext(file)[0]
@@ -167,7 +177,8 @@ def load_edges(edge_dir: str, data: HeteroData) -> dict:
                 f"Edge file '{file_path}' must contain 'src' and 'dst' columns."
             )
         try:
-            edge_index = torch.tensor(df[["src", "dst"]].values.T, dtype=torch.long)
+            edge_index = torch.tensor(
+                df[["src", "dst"]].values.T, dtype=torch.long)
         except Exception as e:
             logging.error(
                 f"Error converting edge index from '{file_path}' to tensor: {e}"
@@ -196,7 +207,8 @@ def load_edges(edge_dir: str, data: HeteroData) -> dict:
             if os.path.exists(label_file):
                 try:
                     df_label = read_data(label_file)
-                    labels = torch.tensor(df_label.values.squeeze(), dtype=torch.long)
+                    labels = torch.tensor(
+                        df_label.values.squeeze(), dtype=torch.long)
                     if labels.dim() == 1:
                         labels = labels.unsqueeze(1)
                     data[key].y = labels
@@ -205,7 +217,8 @@ def load_edges(edge_dir: str, data: HeteroData) -> dict:
                     )
                     break
                 except Exception as e:
-                    logging.error(f"Error reading edge label file '{label_file}': {e}")
+                    logging.error(
+                        f"Error reading edge label file '{label_file}': {e}")
                     raise e
 
     # Process attribute edge files.
@@ -233,7 +246,8 @@ def load_edges(edge_dir: str, data: HeteroData) -> dict:
         try:
             df = read_data(file_path)
         except Exception as e:
-            logging.error(f"Error reading attribute edge file '{file_path}': {e}")
+            logging.error(
+                f"Error reading attribute edge file '{file_path}': {e}")
             raise e
         try:
             edge_attr = torch.tensor(df.values, dtype=torch.float)
@@ -309,8 +323,11 @@ def hetero_to_homogeneous(data: HeteroData, meta: dict) -> torch.Tensor:
         torch.Tensor: Homogeneous feature matrix of shape [total_nodes, max_feat] or [total_nodes, max_feat + 1]
                      depending on the number of node types.
     """
-    sorted_node_types = sorted(meta["nodes"].items(), key=lambda item: item[1]["id"])
-    max_feat = max(data[node_type].x.shape[1] for node_type, _ in sorted_node_types)
+    sorted_node_types = sorted(
+        meta["nodes"].items(),
+        key=lambda item: item[1]["id"])
+    max_feat = max(data[node_type].x.shape[1]
+                   for node_type, _ in sorted_node_types)
 
     homogeneous_features = []
     for node_type, info in sorted_node_types:
@@ -333,7 +350,8 @@ def hetero_to_homogeneous(data: HeteroData, meta: dict) -> torch.Tensor:
 
     homogeneous_x = torch.cat(homogeneous_features, dim=0)
     if len(sorted_node_types) > 1:
-        logging.info(f"Homogeneous node feature matrix shape: {homogeneous_x.shape}")
+        logging.info(
+            f"Homogeneous node feature matrix shape: {homogeneous_x.shape}")
     return homogeneous_x
 
 
@@ -347,7 +365,9 @@ def hetero_edges_to_homogeneous(data: HeteroData, meta: dict) -> torch.Tensor:
     Returns:
         torch.Tensor: Homogeneous edge index tensor of shape [2, total_edges]
     """
-    sorted_node_types = sorted(meta["nodes"].items(), key=lambda item: item[1]["id"])
+    sorted_node_types = sorted(
+        meta["nodes"].items(),
+        key=lambda item: item[1]["id"])
     offsets = {}
     cumulative = 0
     for node_type, info in sorted_node_types:
@@ -359,7 +379,8 @@ def hetero_edges_to_homogeneous(data: HeteroData, meta: dict) -> torch.Tensor:
 
     edge_list = []
     sorted_edge_types = sorted(
-        data.edge_types, key=lambda x: (x[0].lower(), x[1].lower(), x[2].lower())
+        data.edge_types, key=lambda x: (
+            x[0].lower(), x[1].lower(), x[2].lower())
     )
     for edge_type in sorted_edge_types:
         if hasattr(data[edge_type], "edge_index"):
@@ -378,7 +399,8 @@ def hetero_edges_to_homogeneous(data: HeteroData, meta: dict) -> torch.Tensor:
 
     if edge_list:
         homogeneous_edge_index = torch.cat(edge_list, dim=1)
-        logging.info(f"Homogeneous edge index shape: {homogeneous_edge_index.shape}")
+        logging.info(
+            f"Homogeneous edge index shape: {homogeneous_edge_index.shape}")
         return homogeneous_edge_index
     else:
         logging.warning("No edges found in the heterogeneous data.")
@@ -398,7 +420,8 @@ def hetero_edge_attrs_to_homogeneous(data: HeteroData) -> torch.Tensor:
     """
     max_attr_dim = 0
     sorted_edge_types = sorted(
-        data.edge_types, key=lambda x: (x[0].lower(), x[1].lower(), x[2].lower())
+        data.edge_types, key=lambda x: (
+            x[0].lower(), x[1].lower(), x[2].lower())
     )
     for edge_type in sorted_edge_types:
         if hasattr(data[edge_type], "edge_attr"):
@@ -452,7 +475,9 @@ def hetero_to_homogeneous_labels(
         )
         return None
 
-    sorted_node_types = sorted(meta["nodes"].items(), key=lambda item: item[1]["id"])
+    sorted_node_types = sorted(
+        meta["nodes"].items(),
+        key=lambda item: item[1]["id"])
     label_list = []
     for node_type, info in sorted_node_types:
         num_nodes = info["num_nodes"]
@@ -461,13 +486,15 @@ def hetero_to_homogeneous_labels(
             if labels.dim() == 1:
                 labels = labels.unsqueeze(1)
         else:
-            labels = torch.full((num_nodes, 1), default_label, dtype=torch.long)
+            labels = torch.full(
+                (num_nodes, 1), default_label, dtype=torch.long)
         label_list.append(labels)
         logging.info(
             f"Processed labels for node type '{node_type}' with {num_nodes} entries."
         )
     homogeneous_labels = torch.cat(label_list, dim=0)
-    logging.info(f"Homogeneous node label tensor shape: {homogeneous_labels.shape}")
+    logging.info(
+        f"Homogeneous node label tensor shape: {homogeneous_labels.shape}")
     return homogeneous_labels
 
 
@@ -492,7 +519,8 @@ def hetero_edges_to_homogeneous_labels(
         return None
 
     sorted_edge_types = sorted(
-        data.edge_types, key=lambda x: (x[0].lower(), x[1].lower(), x[2].lower())
+        data.edge_types, key=lambda x: (
+            x[0].lower(), x[1].lower(), x[2].lower())
     )
     label_list = []
     for edge_type in sorted_edge_types:
@@ -505,7 +533,8 @@ def hetero_edges_to_homogeneous_labels(
             if labels.dim() == 1:
                 labels = labels.unsqueeze(1)
         else:
-            labels = torch.full((num_edges, 1), default_label, dtype=torch.long)
+            labels = torch.full(
+                (num_edges, 1), default_label, dtype=torch.long)
         label_list.append(labels)
         logging.info(
             f"Processed labels for edge type {edge_type} with {num_edges} entries."
@@ -580,7 +609,6 @@ def read_graph_data(
     try:
 
         hetero_data, meta = build_heterodata(root_dir)
-        logging.info("Successfully loaded the input graph data.")
         write_meta(meta, meta_file)
 
         # Convert nodes.
@@ -592,7 +620,8 @@ def read_graph_data(
             hetero_data, meta, default_node_label
         )
         if homogeneous_node_labels is not None:
-            logging.info(f"Node label tensor shape: {homogeneous_node_labels.shape}")
+            logging.info(
+                f"Node label tensor shape: {homogeneous_node_labels.shape}")
         else:
             logging.info(
                 "No node labels available; skipping homogeneous node label tensor."
@@ -604,14 +633,16 @@ def read_graph_data(
 
         # Convert edge attributes.
         homogeneous_edge_attrs = hetero_edge_attrs_to_homogeneous(hetero_data)
-        logging.info(f"edge attribute matrix shape: {homogeneous_edge_attrs.shape}")
+        logging.info(
+            f"edge attribute matrix shape: {homogeneous_edge_attrs.shape}")
 
         # Convert edge labels if available.
         homogeneous_edge_labels = hetero_edges_to_homogeneous_labels(
             hetero_data, default_edge_label
         )
         if homogeneous_edge_labels is not None:
-            logging.info(f"edge label tensor shape: {homogeneous_edge_labels.shape}")
+            logging.info(
+                f"edge label tensor shape: {homogeneous_edge_labels.shape}")
         else:
             logging.info(
                 "No edge labels available; skipping homogeneous edge label tensor."
@@ -643,4 +674,5 @@ def read_graph_data(
         )
 
     except Exception as e:
-        logging.error(f"Failed to build or convert HeteroData: {e}")
+        logging.error(f"Invalid data: {e}")
+        sys.exit(1)
