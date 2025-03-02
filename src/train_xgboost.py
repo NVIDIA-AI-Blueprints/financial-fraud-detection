@@ -7,6 +7,7 @@
 import itertools
 import os
 import logging
+import sys
 
 import cupy
 import cudf
@@ -34,6 +35,63 @@ def f1_eval_gpu(predictions, labels):
     return "f1", f1
 
 
+def read_data(file_path: str):
+    """
+    Read a data file using cuDF based on the file extension.
+    Supported extensions: .csv, .parquet, .orc
+    """
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == ".csv":
+        return cudf.read_csv(file_path)
+    elif ext == ".parquet":
+        return cudf.read_parquet(file_path)
+    elif ext == ".orc":
+        return cudf.read_orc(file_path)
+    else:
+        raise ValueError(f"Unsupported file extension: {ext}")
+
+
+def evaluate_on_unseen_data(
+    xgb_model:xgb.Booster, test_data_path:str, threshold: float = 0.5
+):
+
+    # Read the test data
+    test_df = read_data(test_data_path)
+
+    # Assume the target column is the last column
+    target_col_name = test_df.columns[-1]
+
+    # Prepare the DMatrix for XGBoost by dropping the target column
+    dnew = xgb.DMatrix(test_df.drop(target_col_name, axis=1))
+
+    # Make predictions
+    y_pred_prob = xgb_model.predict(dnew)
+    y_pred = (y_pred_prob >= threshold).astype(int)
+    y_test = test_df[target_col_name].values
+
+    # Accuracy
+    accuracy = accuracy_score(y_test, y_pred)
+    y_test = cupy.asnumpy(y_test)
+
+    # Precision
+    precision = precision_score(y_test, y_pred)
+
+    # Recall
+    recall = recall_score(y_test, y_pred)
+
+    # F1 Score
+    f1 = f1_score(y_test, y_pred)
+
+    # Confusion Matrix
+    conf_mat = confusion_matrix(y_test, y_pred)
+
+    logging.info(f"Accuracy: {accuracy:.4f}")
+    logging.info(f"Precision: {precision:.4f}")
+    logging.info(f"Recall: {recall:.4f}")
+    logging.info(f"F1 Score: {f1:.4f}")
+    logging.info(f"Confusion Matrix: {conf_mat}")
+
+
 def tran_sg_xgboost(
     param_combinations: List[XGBHyperparametersSingle],
     data_dir: str,
@@ -44,26 +102,57 @@ def tran_sg_xgboost(
 
     logging.info(f"-----Running XGBoost training-----")
 
-    dataset_dir = data_dir
-    xgb_data_dir = os.path.join(dataset_dir, "xgb")
+    xgb_data_dir = os.path.join(data_dir, "xgb")
 
-    train_data_path = os.path.join(xgb_data_dir, "training.csv")
-    df_train = cudf.read_csv(train_data_path)
-    # Target column
-    target_col_name = df_train.columns[-1]
-    # Split the dataframe into features (X) and labels (y)
+    # Get all file names in xgb_data_dir
+    all_files = os.listdir(xgb_data_dir)
+    valid_extensions = {".csv", ".parquet", ".orc"}
+
+    # Look for files with the base names "training" and "validation"
+    training_file = None
+    validation_file = None
+
+    for filename in all_files:
+        base, ext = os.path.splitext(filename)
+        if ext.lower() in valid_extensions:
+            if base == "training":
+                training_file = filename
+            elif base == "validation":
+                validation_file = filename
+
+    # If training file is not found, log an error and exit
+    if training_file is None:
+        logging.error(f"Training file (training.<ext>) not found in the {xgb_data_dir} directory.")
+        sys.exit(1)
+
+    # Read the training data file
+    training_path = os.path.join(xgb_data_dir, training_file)
+    df_train_full = read_data(training_path)
+
+    # If a validation file exists, read it; otherwise, split training data 80/20
+    if validation_file is not None:
+        validation_path = os.path.join(xgb_data_dir, validation_file)
+        df_val = read_data(validation_path)
+        df_train = df_train_full
+    else:
+        # Create an 80/20 train/validation split
+        df_train = df_train_full.sample(frac=0.8, random_state=42)
+        df_val = df_train_full.drop(df_train.index)
+
+    # Assume that the target column is the last column in the training dataframe
+    target_col_name = df_train_full.columns[-1]
+
+    # Split training data into features (X_train) and labels (y_train)
     y_train = df_train[target_col_name]
     X_train = df_train.drop(target_col_name, axis=1)
     nr_input_features = X_train.shape[1]
 
-    val_data_path = os.path.join(xgb_data_dir, "validation.csv")
-    df_val = cudf.read_csv(val_data_path)
-    # Split the dataframe into features (X) and labels (y)
+    # Split validation data into features (X_val) and labels (y_val)
     y_val = df_val[target_col_name]
     X_val = df_val.drop(target_col_name, axis=1)
 
-    # Split data into train and test sets
-    # X_train, X_val, y_train, y_val = train_test_split(X, y, test_size=0.2)
+    logging.info(f"Training data shape:  X = {X_train.shape} y = {y_train.shape}")
+    logging.info(f"Training data shape:  X = {X_val.shape} y = {y_val.shape}")
 
     # Convert the training and test data to DMatrix
     dtrain = xgb.DMatrix(data=X_train, label=y_train)
@@ -132,46 +221,25 @@ def tran_sg_xgboost(
         best_params,
         dtrain,
         num_boost_round=best_num_boost_round)
+    
+
+    # Look for the test file with base name 'test' and a valid extension
+    test_file = None
+    for filename in os.listdir(xgb_data_dir):
+        base, ext = os.path.splitext(filename)
+        if base == "test" and ext.lower() in valid_extensions:
+            test_file = filename
+            break
+    
+    # If test file is not found, log error and exit
+    if test_file is None:
+        logging.info("No test file (test.<ext>) is found in directory: %s", xgb_data_dir)
+    else:
+        logging.info("Evaluating the model on: %s", os.path.join(xgb_data_dir, test_file))
+
+        evaluate_on_unseen_data(final_model, os.path.join(xgb_data_dir, test_file))
 
     return final_model, nr_input_features
-
-
-def evaluate_on_unseen_data(
-    xgb_model: xgb.Booster, dataset_root: str, threshold: float = 0.5
-):
-
-    # Load and prepare test data
-    test_data_path = os.path.join(dataset_root, "xgb/test.csv")
-    test_df = cudf.read_csv(test_data_path)
-    target_col_name = test_df.columns[-1]
-    dnew = xgb.DMatrix(test_df.drop(target_col_name, axis=1))
-
-    # Make predictions
-    y_pred_prob = xgb_model.predict(dnew)
-    y_pred = (y_pred_prob >= threshold).astype(int)
-    y_test = test_df[target_col_name].values
-
-    # Accuracy
-    accuracy = accuracy_score(y_test, y_pred)
-    y_test = cupy.asnumpy(y_test)
-
-    # Precision
-    precision = precision_score(y_test, y_pred)
-
-    # Recall
-    recall = recall_score(y_test, y_pred)
-
-    # F1 Score
-    f1 = f1_score(y_test, y_pred)
-
-    # Confusion Matrix
-    conf_mat = confusion_matrix(y_test, y_pred)
-
-    logging.info(f"Accuracy: {accuracy:.4f}")
-    logging.info(f"Precision: {precision:.4f}")
-    logging.info(f"Recall: {recall:.4f}")
-    logging.info(f"F1 Score: {f1:.4f}")
-    logging.info(f"Confusion Matrix: {conf_mat}")
 
 
 def run_sg_xgboost_training(

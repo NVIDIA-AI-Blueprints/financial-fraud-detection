@@ -38,8 +38,11 @@ Clone the repository and build the Docker image by running the following command
  ```
 
 ---
+## 2. Data Organization
 
-## 2. Graph Data Organization
+---
+
+### 2.1 Graph Data Organization for GNN based XGBoost training
 
 Your data should be organized under a parent directory (for example, `data_root`) with the following subdirectories:
 
@@ -107,7 +110,7 @@ Your data should be organized under a parent directory (for example, `data_root`
 
 ---
 
-### Edges Directory
+#### Edges Directory
 
 #### File Naming Convention
 
@@ -131,7 +134,7 @@ For edges connecting nodes of the single node type, you should have:
 ---
 
 
-### Example Data Layout
+#### Example Data Layout
 
 ```sh
 credit_card_transaction_data/
@@ -143,6 +146,62 @@ credit_card_transaction_data/
 ├── node_to_node.csv
 ```
 
+
+### 2.2 Data Organization for Standalone XGBoost Training
+
+Your dataset is expected to be organized in a specific structure under the `xgb/` folder. Follow the guidelines below to ensure your data is correctly formatted and named.
+
+#### Directory Structure
+
+Place your data files under the `xgb/` directory within your main data folder. The expected files are:
+
+- **`training.<ext>`** (Required): Contains the training data.
+- **`validation.<ext>`** (Optional): Contains the validation data.
+  - If this file is missing, the training data will be automatically split into 80% training and 20% validation.
+- **`test.<ext>`** (Optional): Contains the test data.
+  - If this file is missing *and* the validation file is also missing, the training data will be split into 70% training, 15% validation, and 15% test.
+
+#### Supported File Formats
+
+The `<ext>` in the file names represents the file format. The supported file formats are:
+
+- **CSV**: Files with the `.csv` extension (comma-separated values).
+- **Parquet**: Files with the `.parquet` extension (columnar storage).
+- **ORC**: Files with the `.orc` extension (Optimized Row Columnar format).
+
+The code automatically detects the file extension and uses the appropriate reader.
+
+#### Important Data Format Note
+
+- **Target Column:**
+  The last column in every file is assumed to be the target variable (`y`). All splits (training, validation, and test) are performed with this assumption in mind.
+
+
+#### Example Directory Layout
+
+```sh
+data_root/
+└── xgb/
+    ├── training.csv # or training.parquet, training.orc
+    ├── validation.csv # (optional) or validation.parquet, validation.orc
+    └── test.csv # (optional) or test.parquet, test.orc
+```
+
+
+#### Data Splitting Behavior
+
+- **When only `training.<ext>` is provided:**
+  - If **only the training.<ext> file exists**, the code will split the data into 80% training and 20% validation.
+- **When `validation.<ext>` is provided:**
+  - The provided training and validation files are used directly without splitting.
+- **When `test.<ext>` is present:**
+  - The test file is used to evaluate the model after training.
+
+#### Model Testing
+
+If a `test.<ext>` file is present in the `xgb/` directory, it will be used for evaluation after training.
+
+---
 
 
 ## 3. Write your training configuration
