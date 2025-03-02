@@ -10,6 +10,7 @@ venv/
 build/
 dist/
 *.egg-info/
+*.log
 
 # Environment files (if used for secrets or local config)
 .env

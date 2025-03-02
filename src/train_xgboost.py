@@ -122,12 +122,16 @@ def tran_sg_xgboost(
     y_val_pred = (bst.predict(deval) >= decision_threshold).astype(int)
     f1_eval_gpu(y_val_pred, deval.get_label())
 
-    # Train the final model using the best parameters and best number of boosting rounds
+    # Train the final model using the best parameters and best number of
+    # boosting rounds
     dtrain = xgb.DMatrix(
         data=cudf.concat([X_train, X_val], axis=0),
         label=cudf.concat([y_train, y_val], axis=0),
     )
-    final_model = xgb.train(best_params, dtrain, num_boost_round=best_num_boost_round)
+    final_model = xgb.train(
+        best_params,
+        dtrain,
+        num_boost_round=best_num_boost_round)
 
     return final_model, nr_input_features
 
@@ -159,6 +163,7 @@ def evaluate_on_unseen_data(
 
     # F1 Score
     f1 = f1_score(y_test, y_pred)
+
     # Confusion Matrix
     conf_mat = confusion_matrix(y_test, y_pred)
 
@@ -198,7 +203,8 @@ def run_sg_xgboost_training(
     elif isinstance(input_config.hyperparameters, XGBHyperparametersSingle):
         hyperparameter_list.append(input_config.hyperparameters)
 
-    xgb_model, nr_input_features = tran_sg_xgboost(hyperparameter_list, data_dir)
+    xgb_model, nr_input_features = tran_sg_xgboost(
+        hyperparameter_list, data_dir)
     model_file_name = f"{input_config.kind}_{model_index}.json"
     create_triton_repo_for_xgboost(
         xgb_model,

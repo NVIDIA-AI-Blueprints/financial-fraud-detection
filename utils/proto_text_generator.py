@@ -17,7 +17,8 @@ def generate_xgb_pbtxt(
     """
     Write Protocol Buffers Text for XGBoost model.
     """
-    # Use an f-string with escaped braces to insert the variable input dimension.
+    # Use an f-string with escaped braces to insert the variable input
+    # dimension.
     pbtx_content = f"""\
 default_model_filename: "{model_file_name}"
 backend: "fil"
@@ -63,11 +64,11 @@ def generate_gnn_pbtxt(
     pbtx_content = f"""\
 default_model_filename: "{model_file_name}"
 platform: "onnxruntime_onnx"
-input [                                 
- {{  
+input [
+ {{
     name: "x"
     data_type: TYPE_FP32
-    dims: [-1, {input_dim} ]                    
+    dims: [-1, {input_dim} ]
   }},
   {{
     name: "edge_index"

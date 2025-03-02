@@ -4,6 +4,14 @@
 # subject to NVIDIA intellectual property rights under U.S. and
 # international Copyright laws.
 
+import triton_python_backend_utils as pb_utils
+import xgboost as xgb
+from captum.attr import ShapleyValueSampling
+from torch_geometric.nn import SAGEConv
+import torch.nn.functional as F
+import torch.nn as nn
+import torch
+import json
 import os
 import sys
 import subprocess
@@ -18,10 +26,12 @@ def install_package(package, version=None):
         __import__(package)
         print(f"'{package}' is already installed.")
     except ImportError:
-        # Build the package spec depending on whether a specific version is supplied
+        # Build the package spec depending on whether a specific version is
+        # supplied
         package_spec = f"{package}=={version}" if version else package
         print(f"Installing {package_spec} ...")
-        subprocess.check_call([sys.executable, "-m", "pip", "install", package_spec])
+        subprocess.check_call(
+            [sys.executable, "-m", "pip", "install", package_spec])
         print(f"Installation of {package_spec} finished!")
 
 
@@ -31,17 +41,7 @@ install_package("xgboost", "2.1.4")
 install_package("captum", "0.7.0")
 
 
-import json
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.nn import SAGEConv
-from captum.attr import ShapleyValueSampling
-
-import xgboost as xgb
-
 # Triton Python backend utilities.
-import triton_python_backend_utils as pb_utils
 
 
 class GraphSAGE(torch.nn.Module):
@@ -110,9 +110,11 @@ class TritonPythonModel:
         model_config = json.loads(args["model_config"])
         parameters = model_config["parameters"]
 
-        # Directly index the parameters (no default values). A KeyError will be raised if any key is missing.
+        # Directly index the parameters (no default values). A KeyError will be
+        # raised if any key is missing.
         self.in_channels = int(parameters["in_channels"]["string_value"])
-        self.hidden_channels = int(parameters["hidden_channels"]["string_value"])
+        self.hidden_channels = int(
+            parameters["hidden_channels"]["string_value"])
         self.out_channels = int(parameters["out_channels"]["string_value"])
         self.n_hops = int(parameters["n_hops"]["string_value"])
 
@@ -130,7 +132,8 @@ class TritonPythonModel:
         prediction_config = pb_utils.get_output_config_by_name(
             model_config, "PREDICTION"
         )
-        shap_config = pb_utils.get_output_config_by_name(model_config, "SHAP_VALUES")
+        shap_config = pb_utils.get_output_config_by_name(
+            model_config, "SHAP_VALUES")
 
         self.feature_mask_dtype = pb_utils.triton_string_to_numpy(
             feature_mask_config["data_type"]
@@ -139,7 +142,8 @@ class TritonPythonModel:
         self.prediction_dtype = pb_utils.triton_string_to_numpy(
             prediction_config["data_type"]
         )
-        self.shap_dtype = pb_utils.triton_string_to_numpy(shap_config["data_type"])
+        self.shap_dtype = pb_utils.triton_string_to_numpy(
+            shap_config["data_type"])
 
         self.device = torch.device("cuda")
         self.model = GraphSAGE(
@@ -156,7 +160,10 @@ class TritonPythonModel:
         self.model.eval()
 
         self.bst = xgb.Booster()
-        self.bst.load_model(os.path.join(current_directory, self.xgb_model_filename))
+        self.bst.load_model(
+            os.path.join(
+                current_directory,
+                self.xgb_model_filename))
         self.bst.set_param({"tree_method": "hist", "device": "cuda"})
 
     def execute(self, requests):
@@ -181,7 +188,8 @@ class TritonPythonModel:
                 torch.as_tensor(edge_index_numpy, device=self.device),
                 True,
             )
-            y_pred_prob = self.bst.predict(xgb.DMatrix(embeddings.detach()))[:, None]
+            y_pred_prob = self.bst.predict(
+                xgb.DMatrix(embeddings.detach()))[:, None]
             if compute_shap_numpy[0]:
 
                 def forward_function(node_x_tensor):
@@ -195,14 +203,16 @@ class TritonPythonModel:
                     )
 
                 shapley_sampler = ShapleyValueSampling(forward_function)
-                x_input = torch.as_tensor(node_features_numpy[:1]).to(torch.float32)
+                x_input = torch.as_tensor(
+                    node_features_numpy[:1]).to(torch.float32)
                 baseline = torch.zeros_like(x_input)
 
                 # Compute Shapley attributions
                 attributions = shapley_sampler.attribute(
                     x_input,
                     baselines=baseline,
-                    feature_mask=torch.tensor(feature_mask_numpy).to(torch.int32),
+                    feature_mask=torch.tensor(
+                        feature_mask_numpy).to(torch.int32),
                     n_samples=128,
                 )
             else:
