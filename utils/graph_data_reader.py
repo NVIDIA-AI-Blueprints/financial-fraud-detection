@@ -573,7 +573,6 @@ def read_offset_range_of_training_node(
     """
     file_path = os.path.join(nodes_dir, filename)
     if not os.path.exists(file_path):
-        logging.error(f"JSON file '{file_path}' does not exist.")
         return None
 
     try:
@@ -651,10 +650,6 @@ def read_graph_data(
         training_node_offset = read_offset_range_of_training_node(
             os.path.join(root_dir, "nodes")
         )
-        if training_node_offset:
-            logging.info(
-                f"No edge labels available; skipping homogeneous edge label tensor. {training_node_offset}"
-            )
 
         if training_node_offset:
             training_node_offset_range = (
