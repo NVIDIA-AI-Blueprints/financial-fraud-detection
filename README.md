@@ -143,7 +143,7 @@ credit_card_transaction_data/
 │ └── node_label.csv
 │ └── offset_range_of_training_node.json
 └── edges/
-├── node_to_node.csv
+  └── node_to_node.csv
 ```
 
 
