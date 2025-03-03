@@ -133,6 +133,27 @@ For edges connecting nodes of the single node type, you should have:
 
 ---
 
+### Data types
+
+### `node.<ext>`
+- **Description:** Contains node features.
+- **Data Type:** All columns must contain floating point numbers in `float32` format.
+- **Notes:** Each row represents a node and each column corresponds to a specific feature.
+
+### `node_label.<ext>`
+- **Description:** Contains node labels.
+- **Data Type:** All values are integers (0 or 1).
+- **Column Name:** The file contains a single column named `target`.
+- **Notes:** Each row corresponds to the label of a node.
+
+### `node_to_node.<ext>`
+- **Description:** Contains edge indices.
+- **Data Type:** All columns must contain integers.
+- **Columns:**
+  - `src`: Source node index.
+  - `dst`: Destination node index.
+- **Notes:** The indices must be zero-based (i.e., node numbering starts at 0).
+
 
 #### Example Data Layout
 
