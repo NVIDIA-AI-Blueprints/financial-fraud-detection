@@ -146,7 +146,7 @@ def get_graph_data_from_ogbn_proteins(
     return data_dir
 
 
-def check_output_directory(output_dir: Path):
+def check_output_model_repo_directory(output_dir: Path):
     # Define the base directory where output is expected.
     base_dir = output_dir / "python_backend_model_repository" / "prediction_and_shapley"
 
@@ -222,4 +222,4 @@ def test_with_three_data_format(tmp_path: Path, fmt):
         json.dump(config, f, indent=4)
     validate_config_and_run_training(str(filepath))
 
-    check_output_directory(output_dir)
+    check_output_model_repo_directory(output_dir)
