@@ -48,10 +48,10 @@ def get_graph_data_from_ogbn_proteins(
         pytest.fail(f"Unsupported extension: {ext}")
 
     # Create a suffix path by joining the root directory with the extension
-    output_dir = os.path.join(root_dir, ext)
+    data_dir = os.path.join(root_dir, ext)
 
-    node_dir = os.path.join(output_dir, "nodes")
-    edge_dir = os.path.join(output_dir, "edges")
+    node_dir = os.path.join(data_dir, "nodes")
+    edge_dir = os.path.join(data_dir, "edges")
 
     species_path = os.path.join(node_dir, f"node.{ext}")
     label_path = os.path.join(node_dir, f"node_label.{ext}")
@@ -66,13 +66,11 @@ def get_graph_data_from_ogbn_proteins(
         logging.info(
             "OGBN-Proteins %s files already exist under '%s'. Skipping generation.",
             ext.upper(),
-            output_dir,
+            data_dir,
         )
-        return output_dir
+        return data_dir
 
-    logging.info(
-        "Generating OGBN-Proteins %s files in '%s'...", ext.upper(), output_dir
-    )
+    logging.info("Generating OGBN-Proteins %s files in '%s'...", ext.upper(), data_dir)
 
     os.makedirs(node_dir, exist_ok=True)
     os.makedirs(edge_dir, exist_ok=True)
@@ -143,17 +141,45 @@ def get_graph_data_from_ogbn_proteins(
     logging.info("Wrote Nx1 label   to: %s", label_path)
     logging.info("Wrote edges (src, dst) to: %s", edge_path)
     logging.info(
-        "OGBN-Proteins %s generation complete under '%s'.", ext.upper(), output_dir
+        "OGBN-Proteins %s generation complete under '%s'.", ext.upper(), data_dir
     )
+    return data_dir
 
-    return output_dir
+
+def check_output_directory(output_dir: Path):
+    # Define the base directory where output is expected.
+    base_dir = output_dir / "python_backend_model_repository" / "prediction_and_shapley"
+
+    # Check that the "prediction_and_shapley" directory exists and is a directory.
+    assert base_dir.exists(), f"Directory {base_dir} does not exist."
+    assert base_dir.is_dir(), f"{base_dir} is not a directory."
+
+    # Check that the subdirectory "1" exists under "prediction_and_shapley".
+    sub_dir = base_dir / "1"
+    assert sub_dir.exists(), f"Subdirectory {sub_dir} does not exist."
+    assert sub_dir.is_dir(), f"{sub_dir} is not a directory."
+
+    # Define the expected files in the subdirectory "1".
+    expected_files_sub_dir = [
+        "embedding_based_xgboost.json",
+        "model.py",
+        "state_dict_gnn_model.pth",
+    ]
+    for filename in expected_files_sub_dir:
+        file_path = sub_dir / filename
+        assert file_path.exists(), f"Expected file {file_path} is missing."
+        assert file_path.is_file(), f"{file_path} is not a file."
+
+    # Check that "config.pbtxt" exists in the "prediction_and_shapley" directory.
+    config_file = base_dir / "config.pbtxt"
+    assert config_file.exists(), f"Expected file {config_file} is missing."
+    assert config_file.is_file(), f"{config_file} is not a file."
 
 
 @pytest.mark.parametrize("fmt", ["csv", "parquet", "orc"])
 def test_with_three_data_format(tmp_path: Path, fmt):
 
-    data_path = get_graph_data_from_ogbn_proteins(
-        "tests/dataset/ogbn-proteins", fmt)
+    data_path = get_graph_data_from_ogbn_proteins("tests/dataset/ogbn-proteins", fmt)
 
     logging.info("Dataset dir %s", data_path)
     logging.info(
@@ -195,3 +221,5 @@ def test_with_three_data_format(tmp_path: Path, fmt):
     with filepath.open("w") as f:
         json.dump(config, f, indent=4)
     validate_config_and_run_training(str(filepath))
+
+    check_output_directory(output_dir)

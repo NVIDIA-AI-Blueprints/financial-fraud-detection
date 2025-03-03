@@ -206,7 +206,7 @@ class TritonPythonModel:
 
                 shapley_sampler = ShapleyValueSampling(forward_function)
                 x_input = torch.as_tensor(
-                    node_features_numpy[:1]).to(torch.float32)
+                    node_features_numpy).to(torch.float32)
                 baseline = torch.zeros_like(x_input)
 
                 # Compute Shapley attributions
