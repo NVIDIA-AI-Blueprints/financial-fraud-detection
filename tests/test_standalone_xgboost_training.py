@@ -80,7 +80,7 @@ def generate_random_xgb_data(root_data_dir: str, ext: str) -> str:
         table_test = pa.Table.from_pandas(df_test)
         orc.write_table(table_test, str(test_path))
 
-    print(f"Random data generated in {output_dir}")
+    logging.info(f"Random data generated in {output_dir}")
     return str(Path(root_data_dir) / ext)
 
 
