@@ -4,18 +4,9 @@
 # subject to NVIDIA intellectual property rights under U.S. and
 # international Copyright laws.
 
-import triton_python_backend_utils as pb_utils
-import xgboost as xgb
-from captum.attr import ShapleyValueSampling
-from torch_geometric.nn import SAGEConv
-import torch.nn.functional as F
-import torch.nn as nn
-import torch
-import json
 import os
 import sys
 import subprocess
-import logging
 
 
 def install_package(package, version=None):
@@ -25,15 +16,13 @@ def install_package(package, version=None):
     """
     try:
         __import__(package)
-        logging.info(f"{package} is already installed.")
+        print(f"'{package}' is already installed.")
     except ImportError:
-        # Build the package spec depending on whether a specific version is
-        # supplied
+        # Build the package spec depending on whether a specific version is supplied
         package_spec = f"{package}=={version}" if version else package
-        logging.info(f"Installing {package_spec} ...")
-        subprocess.check_call(
-            [sys.executable, "-m", "pip", "install", package_spec])
-        logging.info(f"Installation of {package_spec} finished!")
+        print(f"Installing {package_spec} ...")
+        subprocess.check_call([sys.executable, "-m", "pip", "install", package_spec])
+        print(f"Installation of {package_spec} finished!")
 
 
 install_package("torch", "2.6.0")
@@ -42,7 +31,19 @@ install_package("xgboost", "2.1.4")
 install_package("captum", "0.7.0")
 
 
+import json
+
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+
+import xgboost as xgb
+
+from captum.attr import ShapleyValueSampling
+from torch_geometric.nn import SAGEConv
+
 # Triton Python backend utilities.
+import triton_python_backend_utils as pb_utils
 
 
 class GraphSAGE(torch.nn.Module):
