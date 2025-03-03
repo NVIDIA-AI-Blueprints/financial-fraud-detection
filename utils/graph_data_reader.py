@@ -8,13 +8,13 @@ import sys
 import os
 import json
 import logging
-import pandas as pd
+import cudf
 import torch
 import torch.nn.functional as F
 from torch_geometric.data import HeteroData, Data
 
 
-def read_data(file_path: str) -> pd.DataFrame:
+def read_data(file_path: str) -> cudf.DataFrame:
     """
     Read a file (CSV, Parquet, or ORC) and return a DataFrame.
 
@@ -22,19 +22,11 @@ def read_data(file_path: str) -> pd.DataFrame:
     """
     ext = os.path.splitext(file_path)[1].lower()
     if ext == ".csv":
-        return pd.read_csv(file_path)
+        return cudf.read_csv(file_path)
     elif ext in [".parquet", ".parq"]:
-        return pd.read_parquet(file_path)
+        return cudf.read_parquet(file_path)
     elif ext == ".orc":
-        try:
-            import pyarrow.orc as orc
-        except ImportError:
-            raise ImportError(
-                "pyarrow is required to read ORC files. Please install pyarrow."
-            )
-        orc_file = orc.ORCFile(file_path)
-        table = orc_file.read()
-        return table.to_pandas()
+        return cudf.read_orc(file_path)
     else:
         raise ValueError(f"Unsupported file extension: {ext}")
 
