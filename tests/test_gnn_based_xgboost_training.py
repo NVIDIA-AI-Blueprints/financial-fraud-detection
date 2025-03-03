@@ -1,46 +1,61 @@
-# Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
-
-# This source code and/or documentation ("Licensed Deliverables") are
-# subject to NVIDIA intellectual property rights under U.S. and
-# international Copyright laws.
-
 from pathlib import Path
-import logging
-import json
 import os
+import json
+import logging
 import pytest
 import pandas as pd
+import pyarrow as pa
+import pyarrow.orc as orc
 
 from src.validate_and_launch import validate_config_and_run_training
 from ogb.nodeproppred import PygNodePropPredDataset
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 
-def get_ogbn_proteins_data_for_node_prediction(
+
+def get_graph_data_from_ogbn_proteins(
     root_dir: str = "tests/dataset/ogbn-proteins",
+    ext: str = "parquet",
 ):
     """
-    A session-scoped fixture that:
-      1) Loads the ogbn-proteins dataset (if needed).
-      2) Creates a directory structure:
-            <root_dir>/
-                nodes/
-                    node.parquet       (Nx1 'species')
-                    node_label.parquet (Nx1 'label')
-                edges/
-                    node_to_node.parquet (src,dst)
-      3) Ensures species & label each have N rows (Nx1).
-      4) Returns the <root_dir> path (str).
+    Loads the ogbn-proteins dataset and saves node and edge data in a subdirectory
+    under the given root_dir, where the subdirectory is named after the file format.
 
-    If the files exist at <root_dir>, it skips re-generation.
-    Otherwise, it generates them.
-    On any mismatch or error, it raises pytest.Fail (which fails the test session).
+    The resulting directory structure is:
+
+        <root_dir>/<ext>/
+            nodes/
+                node.<ext>       (Nx1 'species')
+                node_label.<ext> (Nx1 'label')
+            edges/
+                node_to_node.<ext> (src, dst)
+
+    The function ensures that the species and label DataFrames have matching numbers of rows.
+    It writes the files in the specified format (CSV, Parquet, or ORC) and returns the full
+    directory path where the data was saved.
+
+    Supported extensions: csv, parquet, orc.
+
+    If the files already exist at the target directory, generation is skipped.
+    On any error, pytest.fail is called to stop the test session.
     """
-    node_dir = os.path.join(root_dir, "nodes")
-    edge_dir = os.path.join(root_dir, "edges")
+    ext = ext.lower()
+    if ext not in {"csv", "parquet", "orc"}:
+        logging.error("Unsupported extension: %s", ext)
+        pytest.fail(f"Unsupported extension: {ext}")
 
-    species_path = os.path.join(node_dir, "node.parquet")
-    label_path = os.path.join(node_dir, "node_label.parquet")
-    edge_path = os.path.join(edge_dir, "node_to_node.parquet")
+    # Create a suffix path by joining the root directory with the extension
+    output_dir = os.path.join(root_dir, ext)
+
+    node_dir = os.path.join(output_dir, "nodes")
+    edge_dir = os.path.join(output_dir, "edges")
+
+    species_path = os.path.join(node_dir, f"node.{ext}")
+    label_path = os.path.join(node_dir, f"node_label.{ext}")
+    edge_path = os.path.join(edge_dir, f"node_to_node.{ext}")
 
     # Check if files already exist to skip re-generation
     if (
@@ -48,82 +63,97 @@ def get_ogbn_proteins_data_for_node_prediction(
         and os.path.exists(label_path)
         and os.path.exists(edge_path)
     ):
-        logging.info("OGBN-Proteins Parquet files already exist. Skipping generation.")
-        return root_dir  # Just return the root directory
+        logging.info(
+            "OGBN-Proteins %s files already exist under '%s'. Skipping generation.",
+            ext.upper(),
+            output_dir,
+        )
+        return output_dir
 
-    # Otherwise, generate them
-    logging.info("Generating OGBN-Proteins Parquet files in '%s'...", root_dir)
+    logging.info(
+        "Generating OGBN-Proteins %s files in '%s'...", ext.upper(), output_dir
+    )
 
     os.makedirs(node_dir, exist_ok=True)
     os.makedirs(edge_dir, exist_ok=True)
 
-    # Load dataset
+    # Load the ogbn-proteins dataset
     try:
         dataset = PygNodePropPredDataset(name="ogbn-proteins", root="data")
-        data = dataset[0]  # single graph
+        data = dataset[0]  # Single graph dataset
         logging.info("Loaded ogbn-proteins dataset.")
     except Exception as e:
-        logging.error(f"Could not load ogbn-proteins: {e}")
+        logging.error("Could not load ogbn-proteins: %s", e)
         pytest.fail(f"Dataset loading failed: {e}")
 
-    # Species: Nx1
+    # Process species data (Nx1)
     if data.node_species is None:
         logging.error("data.node_species is None.")
         pytest.fail("Missing node_species in data.")
-
-    species_arr = data.node_species.squeeze(-1).numpy()  # shape [N]
-    species_arr = species_arr.reshape(-1, 1)  # Nx1
+    species_arr = data.node_species.squeeze(-1).numpy().reshape(-1, 1)
     df_species = pd.DataFrame(species_arr, columns=["species"])
 
-    # Label: Nx1 (take the first column of y)
+    # Process label data (Nx1, using the first column of y)
     if data.y is None:
         logging.error("data.y is None.")
         pytest.fail("Missing labels (y) in data.")
-
     if data.y.size(1) < 1:
         pytest.fail("data.y has 0 columns, cannot extract first label column.")
-
-    label_arr = data.y[:, 0].numpy().reshape(-1, 1)  # Nx1
+    label_arr = data.y[:, 0].numpy().reshape(-1, 1)
     df_label = pd.DataFrame(label_arr, columns=["label"])
 
-    # Check shapes match
+    # Ensure species and label have the same number of rows
     if df_species.shape[0] != df_label.shape[0]:
         logging.error(
-            f"Row mismatch: species={df_species.shape}, label={df_label.shape}"
+            "Row mismatch: species=%s, label=%s", df_species.shape, df_label.shape
         )
         pytest.fail("Species and label have different row counts.")
 
-    # Edges
+    # Process edge data
     if data.edge_index is None:
         logging.error("data.edge_index is None.")
         pytest.fail("Missing edge_index in data.")
-
-    edge_index = data.edge_index.numpy()  # shape [2, E]
+    edge_index = data.edge_index.numpy()
     src, dst = edge_index[0], edge_index[1]
     df_edges = pd.DataFrame({"src": src, "dst": dst})
 
-    # Write to Parquet
+    # Write output files using the specified extension
     try:
-        df_species.to_parquet(species_path)
-        df_label.to_parquet(label_path)
-        df_edges.to_parquet(edge_path)
+        if ext == "parquet":
+            df_species.to_parquet(species_path, index=False)
+            df_label.to_parquet(label_path, index=False)
+            df_edges.to_parquet(edge_path, index=False)
+        elif ext == "csv":
+            df_species.to_csv(species_path, index=False)
+            df_label.to_csv(label_path, index=False)
+            df_edges.to_csv(edge_path, index=False)
+        elif ext == "orc":
+            # Convert DataFrames to PyArrow Tables and write ORC files
+            table_species = pa.Table.from_pandas(df_species)
+            orc.write_table(table_species, species_path)
+            table_label = pa.Table.from_pandas(df_label)
+            orc.write_table(table_label, label_path)
+            table_edges = pa.Table.from_pandas(df_edges)
+            orc.write_table(table_edges, edge_path)
     except Exception as e:
-        logging.error(f"Failed to write Parquet files: {e}")
-        pytest.fail(f"Failed to write Parquet files: {e}")
+        logging.error("Failed to write %s files: %s", ext.upper(), e)
+        pytest.fail(f"Failed to write {ext.upper()} files: {e}")
 
-    logging.info("Wrote Nx1 species to:       %s", species_path)
-    logging.info("Wrote Nx1 label   to:       %s", label_path)
-    logging.info("Wrote edges (src,dst) to:    %s", edge_path)
-    logging.info("OGBN-Proteins Parquet generation complete under '%s'.", root_dir)
-
-    return root_dir
-
-
-def test_gnn_based_xgb_training(tmp_path: Path):
-
-    data_path = get_ogbn_proteins_data_for_node_prediction(
-        "tests/dataset/ogbn-proteins"
+    logging.info("Wrote Nx1 species to: %s", species_path)
+    logging.info("Wrote Nx1 label   to: %s", label_path)
+    logging.info("Wrote edges (src, dst) to: %s", edge_path)
+    logging.info(
+        "OGBN-Proteins %s generation complete under '%s'.", ext.upper(), output_dir
     )
+
+    return output_dir
+
+
+@pytest.mark.parametrize("fmt", ["csv", "parquet", "orc"])
+def test_with_three_data_format(tmp_path: Path, fmt):
+
+    data_path = get_graph_data_from_ogbn_proteins(
+        "tests/dataset/ogbn-proteins", fmt)
 
     logging.info("Dataset dir %s", data_path)
     logging.info(
@@ -132,8 +162,8 @@ def test_gnn_based_xgb_training(tmp_path: Path):
         str(tmp_path),
     )
 
-    output_dir = tmp_path / "output"
-    output_dir.mkdir()
+    output_dir = tmp_path / "output" / fmt
+    output_dir.mkdir(parents=True, exist_ok=True)
     config = {
         "paths": {"data_dir": data_path, "output_dir": str(output_dir)},
         "models": [

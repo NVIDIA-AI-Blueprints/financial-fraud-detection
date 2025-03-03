@@ -6,7 +6,7 @@
 
 
 from typing import List, Literal, Union, Optional
-from pydantic import BaseModel, Field, conint, conlist, confloat
+from pydantic import BaseModel, ConfigDict, Field, conint, conlist, confloat
 from enum import Enum
 
 
@@ -25,8 +25,7 @@ class StrictBaseModel(BaseModel):
     A custom base model that forbids extra/unknown fields.
     """
 
-    class Config:
-        extra = "forbid"
+    model_config = ConfigDict(extra="forbid")
 
 
 class XGBHyperparametersSingle(StrictBaseModel):
