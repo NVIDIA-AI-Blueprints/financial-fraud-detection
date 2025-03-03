@@ -15,6 +15,7 @@ import json
 import os
 import sys
 import subprocess
+import logging
 
 
 def install_package(package, version=None):
@@ -24,15 +25,15 @@ def install_package(package, version=None):
     """
     try:
         __import__(package)
-        print(f"'{package}' is already installed.")
+        logging.info(f"{package} is already installed.")
     except ImportError:
         # Build the package spec depending on whether a specific version is
         # supplied
         package_spec = f"{package}=={version}" if version else package
-        print(f"Installing {package_spec} ...")
+        logging.info(f"Installing {package_spec} ...")
         subprocess.check_call(
             [sys.executable, "-m", "pip", "install", package_spec])
-        print(f"Installation of {package_spec} finished!")
+        logging.info(f"Installation of {package_spec} finished!")
 
 
 install_package("torch", "2.6.0")
