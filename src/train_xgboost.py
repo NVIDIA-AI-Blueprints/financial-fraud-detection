@@ -46,7 +46,10 @@ def read_data(file_path: str):
     elif ext == ".parquet":
         return cudf.read_parquet(file_path)
     elif ext == ".orc":
-        return cudf.read_orc(file_path)
+        df = cudf.read_orc(file_path)
+        if "__index_level_0__" in df.columns:
+            df = df.drop(columns="__index_level_0__")
+        return df
     else:
         raise ValueError(f"Unsupported file extension: {ext}")
 
@@ -67,7 +70,7 @@ def evaluate_on_unseen_data(
     # Make predictions
     y_pred_prob = xgb_model.predict(dnew)
     y_pred = (y_pred_prob >= threshold).astype(int)
-    y_test = test_df[target_col_name].values
+    y_test = test_df[target_col_name].values.astype(int)
 
     # Accuracy
     accuracy = accuracy_score(y_test, y_pred)
@@ -143,18 +146,18 @@ def tran_sg_xgboost(
     target_col_name = df_train_full.columns[-1]
 
     # Split training data into features (X_train) and labels (y_train)
-    y_train = df_train[target_col_name]
+    y_train = df_train[target_col_name].astype(int)
     X_train = df_train.drop(target_col_name, axis=1)
     nr_input_features = X_train.shape[1]
 
     # Split validation data into features (X_val) and labels (y_val)
-    y_val = df_val[target_col_name]
+    y_val = df_val[target_col_name].astype(int)
     X_val = df_val.drop(target_col_name, axis=1)
 
     logging.info(f"Training data shape:  X = {X_train.shape} y = {y_train.shape}")
     logging.info(f"Training data shape:  X = {X_val.shape} y = {y_val.shape}")
 
-    # Convert the training and test data to DMatrix
+    # Convert the training and validation data to DMatrix
     dtrain = xgb.DMatrix(data=X_train, label=y_train)
     deval = xgb.DMatrix(data=X_val, label=y_val)
 

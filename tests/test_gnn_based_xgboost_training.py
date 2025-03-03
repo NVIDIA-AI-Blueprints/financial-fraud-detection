@@ -15,7 +15,7 @@ from src.validate_and_launch import validate_config_and_run_training
 from ogb.nodeproppred import PygNodePropPredDataset
 
 
-def save_ogbn_proteins_data_for_node_prediction(
+def get_ogbn_proteins_data_for_node_prediction(
     root_dir: str = "tests/dataset/ogbn-proteins",
 ):
     """
@@ -119,9 +119,9 @@ def save_ogbn_proteins_data_for_node_prediction(
     return root_dir
 
 
-def test_process_protein_data_dir(tmp_path: Path):
+def test_gnn_based_xgb_training(tmp_path: Path):
 
-    data_path = save_ogbn_proteins_data_for_node_prediction(
+    data_path = get_ogbn_proteins_data_for_node_prediction(
         "tests/dataset/ogbn-proteins"
     )
 
