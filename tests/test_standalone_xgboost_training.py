@@ -1,4 +1,5 @@
 from pathlib import Path
+import pytest
 import numpy as np
 import pandas as pd
 import pyarrow as pa
@@ -51,8 +52,8 @@ def generate_random_xgb_data(root_data_dir: str, ext: str) -> str:
     n_train = int(n_rows * 0.70)
     n_val = int(n_rows * 0.15)
     train_idx = indices[:n_train]
-    val_idx = indices[n_train : n_train + n_val]
-    test_idx = indices[n_train + n_val :]
+    val_idx = indices[n_train: n_train + n_val]
+    test_idx = indices[n_train + n_val:]
 
     df_train = df.iloc[train_idx]
     df_val = df.iloc[val_idx]
@@ -84,37 +85,37 @@ def generate_random_xgb_data(root_data_dir: str, ext: str) -> str:
     return str(Path(root_data_dir) / ext)
 
 
-def test_with_three_data_format(tmp_path: Path):
+@pytest.mark.parametrize("fmt", ["csv", "parquet", "orc"])
+def test_with_three_data_format(tmp_path: Path, fmt):
 
-    for fmt in ["csv", "parquet", "orc"]:
-        data_path = generate_random_xgb_data(str(tmp_path), fmt)
-        logging.info("Dataset dir %s", data_path)
-        logging.info(
-            f"Trained models and protobuf config files for deploying "
-            f"on Triton Inference Server will be saved under %s",
-            str(tmp_path),
-        )
+    data_path = generate_random_xgb_data(str(tmp_path), fmt)
+    logging.info("Dataset dir %s", data_path)
+    logging.info(
+        f"Trained models and protobuf config files for deploying "
+        f"on Triton Inference Server will be saved under %s",
+        str(tmp_path),
+    )
 
-        output_dir = tmp_path / "output" / fmt
-        output_dir.mkdir(parents=True, exist_ok=True)
-        config = {
-            "paths": {"data_dir": data_path, "output_dir": str(output_dir)},
-            "models": [
-                {
-                    "kind": "XGBoost",
-                    "gpu": "single",
-                    "hyperparameters": {
-                        "max_depth": 6,
-                        "learning_rate": 0.2,
-                        "num_parallel_tree": 3,
-                        "num_boost_round": 512,
-                        "gamma": 0.0,
-                    },
-                }
-            ],
-        }
+    output_dir = tmp_path / "output" / fmt
+    output_dir.mkdir(parents=True, exist_ok=True)
+    config = {
+        "paths": {"data_dir": data_path, "output_dir": str(output_dir)},
+        "models": [
+            {
+                "kind": "XGBoost",
+                "gpu": "single",
+                "hyperparameters": {
+                    "max_depth": 6,
+                    "learning_rate": 0.2,
+                    "num_parallel_tree": 3,
+                    "num_boost_round": 512,
+                    "gamma": 0.0,
+                },
+            }
+        ],
+    }
 
-        filepath = tmp_path / "tmp_train_config.json"
-        with filepath.open("w") as f:
-            json.dump(config, f, indent=4)
-        validate_config_and_run_training(str(filepath))
+    filepath = tmp_path / "tmp_train_config.json"
+    with filepath.open("w") as f:
+        json.dump(config, f, indent=4)
+    validate_config_and_run_training(str(filepath))
