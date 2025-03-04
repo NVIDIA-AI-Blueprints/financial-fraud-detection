@@ -586,7 +586,7 @@ def k_fold_validation(
     Run k-fold cross validation.
     """
 
-    end_offset_train_node, start_offset_train_node = start_end_offset_train_node
+    start_offset_train_node, end_offset_train_node= start_end_offset_train_node
 
     num_training_nodes = end_offset_train_node - start_offset_train_node
     fold_size = num_training_nodes // h_params.n_folds
@@ -595,7 +595,7 @@ def k_fold_validation(
     metric_scores = []
 
     for k in range(h_params.n_folds):
-        training_nodes = start_end_offset_train_node + torch.cat(
+        training_nodes = start_offset_train_node + torch.cat(
             (
                 torch.arange(0, k * fold_size).unsqueeze(dim=0),
                 torch.arange(
@@ -1011,6 +1011,8 @@ def run_sg_embedding_based_xgboost(
             early_stopping,
             random_state=random_state,
         )
+        logging.info(f"Best hyper-parameters {best_h_params}")
+        logging.info(f"Going to train the final model using {best_h_params}")
 
         embedder_model, xgb_model = train_with_specific_hyper_params(
             data,

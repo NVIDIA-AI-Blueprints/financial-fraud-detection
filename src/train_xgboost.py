@@ -154,8 +154,8 @@ def tran_sg_xgboost(
     y_val = df_val[target_col_name].astype(int)
     X_val = df_val.drop(target_col_name, axis=1)
 
-    logging.info(f"Training data shape:  X = {X_train.shape} y = {y_train.shape}")
-    logging.info(f"Training data shape:  X = {X_val.shape} y = {y_val.shape}")
+    logging.debug(f"Training data   shape:  X = {X_train.shape} y = {y_train.shape}")
+    logging.debug(f"Validation data shape:  X = {X_val.shape} y = {y_val.shape}")
 
     # Convert the training and validation data to DMatrix
     dtrain = xgb.DMatrix(data=X_train, label=y_train)
