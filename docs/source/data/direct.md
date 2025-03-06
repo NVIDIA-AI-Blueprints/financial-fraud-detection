@@ -49,6 +49,16 @@ credit_card_transaction_data/
 - **nodes/**: Contains Parquet files for different node types.
 - **edges/**: Contains Parquet files for different edge types along with optional attributes and labels.
 
+- **Main Edge File (`node_to_node.<ext>`):**
+  This file must contain at least two columns:
+  - `src`: The column containing indices of the source nodes
+  - `dst`: The column containing indices of the destination nodes.
+  - The index of a node is determined by its position in the node feature file `node.<ext>` and is zero-based and contiguous.
+  - The number of rows corresponds to the number of edges.
+  NOTE: The column containing source and destination nodes must be named `src` and `dst`, respectively.
+
+
+
 - **Node Feature Files:**  
   Each node type must have its own Parquet file. The file name (without the `.parquet` extension) defines the node type. For 
 
