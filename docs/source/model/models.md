@@ -1,5 +1,8 @@
 # Model Training Options
 
+![nxcg-execution-flow](../_static/training-nim.png)
+
+   :width: 600
 
 ## Data Organization for Standalone XGBoost Training
 
