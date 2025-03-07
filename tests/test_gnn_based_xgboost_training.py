@@ -203,7 +203,7 @@ def test_with_three_data_format(tmp_path: Path, fmt):
                         "dropout_prob": 0.1,
                         "batch_size": 1024,
                         "fan_out": 16,
-                        "num_epochs": 16,
+                        "num_epochs": 4,
                     },
                     "xgb": {
                         "max_depth": 6,

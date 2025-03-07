@@ -8,6 +8,8 @@ import logging
 import os
 import random
 import sys
+import time
+
 from collections import namedtuple
 from enum import Enum
 from typing import Tuple, Union
@@ -586,7 +588,7 @@ def k_fold_validation(
     Run k-fold cross validation.
     """
 
-    start_offset_train_node, end_offset_train_node= start_end_offset_train_node
+    start_offset_train_node, end_offset_train_node = start_end_offset_train_node
 
     num_training_nodes = end_offset_train_node - start_offset_train_node
     fold_size = num_training_nodes // h_params.n_folds
@@ -790,11 +792,13 @@ def train_with_specific_hyper_params(
     )
 
     for epoch in range(hyper_params_gnn.num_epochs):
+        start_time = time.time()
         train_loss = train_gnn(
             graph_sage_model,
             train_loader,
             optimizer,
             loss_function)
+
         metric_value = evaluate_gnn(
             graph_sage_model, val_loader, metric=validation_metric
         )
@@ -803,6 +807,10 @@ def train_with_specific_hyper_params(
             logging.info(
                 f"Epoch {epoch}, training loss : {train_loss}, validation {validation_metric} : {metric_value}"
             )
+
+        elapsed_time = time.time() - start_time
+        logging.info(f"Epoch {epoch + 1} took {elapsed_time:.2f} seconds")
+
         if early_stopping:
             early_stopping(metric_value, graph_sage_model)
             if early_stopping.early_stop:
@@ -822,6 +830,7 @@ def train_with_specific_hyper_params(
             pass
 
     # Finally train on validation data well
+    start_time = time.time()
     for epoch in range(hyper_params_gnn.num_epochs):
         train_loss = train_gnn(
             graph_sage_model,
@@ -829,8 +838,13 @@ def train_with_specific_hyper_params(
             optimizer,
             loss_function)
 
+    elapsed_time = time.time() - start_time
+    logging.info(f"Training on validation data took {elapsed_time:.2f} seconds")
+
     # Train the XGBoost model based on embeddings produced by the GraphSAGE
     # model
+
+    start_time = time.time()
     data_loader = NeighborLoader(
         data,
         num_neighbors=[hyper_params_gnn.fan_out, hyper_params_gnn.fan_out],
@@ -848,6 +862,9 @@ def train_with_specific_hyper_params(
         embeddings.to(device),
         labels.to(device),
         hyper_params_xgb)
+
+    elapsed_time = time.time() - start_time
+    logging.info(f"Training xgboost on embeddings took {elapsed_time:.2f} seconds")
 
     return graph_sage_model, bst
 
@@ -949,7 +966,7 @@ def run_sg_embedding_based_xgboost(
     input_config: Union[GraphSAGEAndXGB, GraphSAGEGridAndXGB],
     model_index,
 ):
-
+    start_time = time.time()
     random_state = 42
     set_seed(random_state)
 
@@ -999,6 +1016,13 @@ def run_sg_embedding_based_xgboost(
             early_stopping=early_stopping,
             validation_metric=input_config.hyperparameters.gnn.metric,
             random_state=42,
+        )
+
+        end_time = time.time()
+        logging.info(
+            "Elapsed time for data loading and training: {:.4f} seconds".format(
+                end_time - start_time
+            )
         )
 
     elif isinstance(input_config.hyperparameters, GraphSAGEGridAndXGBConfig):
