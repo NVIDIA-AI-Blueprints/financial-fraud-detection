@@ -1,4 +1,6 @@
 
+# Data Organization
+
 ## CSV Files
 
 Your data should be organized under a parent directory (for example, `data_root`) with the following subdirectories:
@@ -10,8 +12,8 @@ Your data should be organized under a parent directory (for example, `data_root`
 ```
 
 ```sh
-merchant_features.csv
-user_features.csv
+type1_features.csv
+type2_features.csv
 edges.csv
 edge_labels.csv
 edge_features.csv
@@ -35,15 +37,17 @@ edge_features.csv
 
 ## Parquet Files
 
+One parquet file for each 
+
 ```sh
 credit_card_transaction_data/
 ├── nodes/
-│   ├── User.parquet
-│   └── Merchant.parquet
+│   ├── type1.parquet
+│   └── type2.parquet
 └── edges/
-    ├── User__transaction__Merchant.parquet
-    ├── User__transaction__Merchant_attr.parquet
-    └── User__transaction__Merchant_label.parquet
+    ├── type1__transaction__type2.parquet
+    ├── type1__transaction__type2_attr.parquet
+    └── type1__transaction__type2_label.parquet
 ```
 
 - **nodes/**: Contains Parquet files for different node types.
@@ -65,12 +69,12 @@ credit_card_transaction_data/
 - **Optional Node Label Files:**  
   If you have labels for a node type, create a label file by appending `_label` to the node type name.
 
-  - **Feature Files:**  
+  - **Feature Files:**
   - These files should contain a table of node attributes (features).
   - The number of rows corresponds to the number of nodes for that type.
   - The number of columns is the feature dimension (which may vary between node types).
 
-  - **Label Files (Optional):**  
+  - **Label Files (Optional):**
   - These files should contain the ground-truth labels for nodes.
   - They are expected to have a single column with a number of rows equal to that of the corresponding feature file.
 
