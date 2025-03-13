@@ -1,3 +1,6 @@
+Data Organization
+=================
+
 .. toctree::
    :maxdepth: 2
 
