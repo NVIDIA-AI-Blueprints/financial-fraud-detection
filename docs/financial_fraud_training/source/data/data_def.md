@@ -66,7 +66,7 @@ Provide the start and end offset of the target nodes in `node.<ext>` file. If th
 
 
 - **Optional JSON file containing the start and end offset of the target nodes in node.<ext> (`offset_range_of_training_node.json`)**
-  This file should specify the start and end offsets for the training node—a contiguous range—in node.<ext>. In other words, it defines the range of node offsets that the model will be trained on.
+  This file should specify the start and end offsets for the training nodes a contiguous range `node.<ext>`. In other words, it defines the range of node offsets that the model will be trained on.
 
 
   For example, for credit card fraud detection, if your `node.<ext>` file includes features for User, Merchant, and Transaction nodes, and your goal is to predict whether a transaction is fraudulent, you might be interested to train on transaction nodes only.
@@ -172,10 +172,8 @@ Place your data files under the `xgb/` directory within your main data folder. T
 
 - **`training.<ext>`** (Required): Contains the training data.
 - **`validation.<ext>`** (Optional): Contains the validation data.
-  - If this file is missing, the training data will be automatically split into 80% training and 20% validation.
-- **`test.<ext>`** (Optional): Contains the test data.
-  - If this file is missing *and* the validation file is also missing, the training data will be split into 70% training, 15% validation, and 15% test.
-
+  - If this file is missing, the training data will be split into 80% training and 20% validation.
+- **`test.<ext>`** (Optional): Contains the test data. If test data is provided, it will be used for testing the model performance.
 
 ### Supported File Formats
 
