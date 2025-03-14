@@ -109,7 +109,7 @@ For edges connecting nodes of the single node type, you should have:
   - `dst`: The column containing indices of the destination nodes.
   - The index of a node is determined by its position in the node feature file `node.<ext>` and is zero-based.
   - The number of rows corresponds to the number of edges.
-  NOTE: The column containing source and destination nodes must be named `src` and `dst`, respectively.
+  NOTE: The columns containing source and destination nodes must be named `src` and `dst`, respectively.
 
 
 ---
