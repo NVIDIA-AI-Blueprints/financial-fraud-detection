@@ -104,7 +104,7 @@ To train an XGBoost model directly on input features, the model configuration sh
 **Note: This is not preferred but might be necessary if one or more of these characteristics is not acceptable.**
  - **performance - training takes too long on the gnn or resulting embeddings.**
  - **precision - fewer predicted positives were actual positives**
- - **accuracy - the percent of accurate predictions ( positive and negative ) was too low.**
+ - **accuracy - the percent of accurate predictions ( positive plus negative ) was too low.**
  - **recall - too few actual positives were predicted**
 
 
