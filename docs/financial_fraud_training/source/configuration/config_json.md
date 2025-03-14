@@ -1,7 +1,3 @@
-If a `test.<ext>` file is present in the `xgb/` directory, it will be used for evaluation after training.
-
----
-
 
 # Write your training configuration
 
@@ -103,11 +99,11 @@ Here is example of a full training configuration file for training an XGBoost mo
 
 ## Train an XGBoost directly on input features
 
-To train an XGBoost model directly on input features, the model configuration should have the following schema, and the `kind` field must be set to `XGBoost`. **
+To train an XGBoost model directly on input features, the model configuration should have the following schema, and the `kind` field must be set to `XGBoost`.
 
-**Note: This is not preferred but might be necessary if one or more of these characteristics is not acceptable.__
- - **performance - training takes too long on the gnn.__
- - **precision - fewer predicted positives were actually positives**
+**Note: This is not preferred but might be necessary if one or more of these characteristics is not acceptable.**
+ - **performance - training takes too long on the gnn or resulting embeddings.**
+ - **precision - fewer predicted positives were actual positives**
  - **accuracy - the percent of accurate predictions ( positive and negative ) was too low.**
  - **recall - too few actual positives were predicted**
 
@@ -159,7 +155,8 @@ Here is example of a full training configuration file for training an XGBoost mo
 
 
 
-GNN and Xgb(oost) parameters can either be single value or a list of the data type specified. The list must be of the same size as the n_hops value. The list values allow different hyperparameters for each hop(layer).
+GNN and Xgb(oost) parameters can either be single value or a list of the data type specified. The list values create permutations that will be run independently.
+For example, if 
 
 
 - "paths"  path/on/machine that Contains needed paths for input and output
@@ -171,8 +168,10 @@ GNN and Xgb(oost) parameters can either be single value or a list of the data ty
     - "hidden_channels" - Number of hidden channels (e.g., 32).
     - "n_hops" - Number of hops (e.g., 2). Same as number of layers.
     - "dropout_prob" - Dropout probability (e.g., 0.2). Chance to eliminate any given feature.
-    - "batch_size" - Batch size (e.g., 1024). How many nodes to predict to grab at a time. Parallelizes the run to fit into gpu memory. More batches increases run time.
-    - "fan_out" - Number of neighbors to sample for each node (e.g., 16). Random number of neighbors chosen from complete incident edgelist.
+    - "batch_size" - Batch size (e.g., 1024). How many nodes to predict to grab at a time. 
+  Parallelizes the run to fit into gpu memory. More batches increases run time.
+    - "fan_out" - Number of neighbors to sample for each node (e.g., 16). Random number of neighbors 
+    chosen from complete incident edgelist.
     - "num_epochs" - Number of epochs to train the model.
   - "xgb" -
     - "max_depth" - A list of possible max_depth values. e.g., [3, 6, 9]
