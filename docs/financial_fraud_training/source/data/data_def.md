@@ -38,8 +38,10 @@ Your data should be organized under a parent directory (for example, `data_root`
   - `node_label.csv`
 
 
-- **Optional JSON file containing the start and end offset of the target nodes in node.<ext> file**
+- **Optional offset range JSON file:**
+Provide the start and end offset of the target nodes in `node.<ext>` file. If this is not provided, the training will be run on all the nodes.
   - `offset_range_of_training_node.json`
+
 
 
 ### File Contents
@@ -107,7 +109,7 @@ For edges connecting nodes of the single node type, you should have:
   - `dst`: The column containing indices of the destination nodes.
   - The index of a node is determined by its position in the node feature file `node.<ext>` and is zero-based.
   - The number of rows corresponds to the number of edges.
-  NOTE: The column containing source and destination nodes must be named `src` and `dst`, respectively.
+  NOTE: The columns containing source and destination nodes must be named `src` and `dst`, respectively.
 
 
 ---
