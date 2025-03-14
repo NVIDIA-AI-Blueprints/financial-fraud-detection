@@ -232,8 +232,6 @@ If a `test.<ext>` file is present in the `xgb/` directory, it will be used for e
 ---
 
 
-
-
 Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
 
 This source code and/or documentation ("Licensed Deliverables") are
