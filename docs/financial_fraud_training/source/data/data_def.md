@@ -1,8 +1,5 @@
 
----
-
-
-## Graph Data Organization for GNN based XGBoost training
+# Graph Data Organization for GNN based XGBoost training
 
 
 Your data should be organized under a parent directory (for example, `data_root`) with the following subdirectories:
