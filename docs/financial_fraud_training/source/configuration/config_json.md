@@ -1,21 +1,39 @@
-# Model Training Options
+If a `test.<ext>` file is present in the `xgb/` directory, it will be used for evaluation after training.
+
+---
 
 
-## Data Organization for Standalone XGBoost Training
+# Write your training configuration
 
-Your dataset is expected to be organized in a specific structure under the `xgb/` folder. Follow the guidelines below to ensure your data is correctly formatted and named.
+A training configuration file must be a JSON file with the following schema:
 
-### Directory Structure
+```bash
+{
+  "paths": {
+    "data_dir":   // Directory path within the container where training data is mounted.
+    "output_dir": // Directory path within the container where trained models will be saved.
+  },
 
-Place your data files under the `xgb/` directory within your main data folder. The expected files are:
+  "models": [
+    //Provide your model configuration schema here (described below).
+  ]
+}
+```
+__Field Description__
 
-- **`training.<ext>`** (Required): Contains the training data.
-- **`validation.<ext>`** (Optional): Contains the validation data.
-  - If this file is missing, the training data will be automatically split into 80% training and 20% validation.
-- **`test.<ext>`** (Optional): Contains the test data.
-  - If this file is missing *and* the validation file is also missing, the training data will be split into 70% training, 15% validation, and 15% test.
+`data_dir`: It must a path withing the container where the training data is mounted.
 
-## XGBoost on the embeddings produced by GNN (GraphSAGE) model
+`output_dir`: It must a path withing the container where the models will be saved after the training.
+
+
+As of now, the Training NIM supports two kinds of model trainings:
+  - Train XGBoost on the embeddings produced by GNN (GraphSAGE) model
+  - Train XGBoost directly on input features
+
+The following two subsections describe the `Model Configuration Schema` for two types of trainings, and provide examples of full training configuration files.
+
+## Train an XGBoost on the embeddings produced by a GNN model
+
 
 To train an XGBoost model on the embeddings produced by a GNN model, the model configuration should have the following schema.
 
@@ -43,6 +61,9 @@ Note that the `kind` field must be set to `GraphSAGE_XGBoost`, and it needs `hyp
         }
       }
 ```
+
+The `gamma`, `dropout_prob` and `learning_rate` fields take floating point values and the rest of the fields take integer values.
+
 
 Here is example of a full training configuration file for training an XGBoost model on the embeddings produced by a GNN model.
 
@@ -80,12 +101,57 @@ Here is example of a full training configuration file for training an XGBoost mo
 }
 ```
 
+## Train an XGBoost directly on input features
+
+To train an XGBoost model directly on input features, the model configuration should have the following schema, and the `kind` field must be set to `XGBoost`.
 
 
-
-The `gamma`, `dropout_prob` and `learning_rate` fields take floating point values and the rest of the fields take integer values.
-
+```sh
+    {
+      "kind": "XGBoost",          // Train XGBoost directly on input features
+      "gpu": "single",            // Indicates whether to use single-gpu or multi-gpu
+      "hyperparameters": {
+        "max_depth": 6,           // Maximum tree depth
+        "learning_rate": 0.2,     // Learning rate for the boosting process
+        "num_parallel_tree": 3,   // Number of trees built in parallel
+        "num_boost_round": 512,   // Total number of boosting rounds
+        "gamma": 0.0              // Minimum loss reduction required to make a further partition on a leaf node
+      }
+    }
 ```
+
+The `learning_rate` and `gamma`  fields take floating point values and the rest of the fields take integer values.
+
+
+Here is example of a full training configuration file for training an XGBoost model on directly on input features.
+
+```sh
+{
+  "paths": {
+    "data_dir": "/data",                   // Directory path within the container where input data is stored.
+    "output_dir": "/trained_models"   // Directory path within the container where trained models will be saved.
+  },
+
+  "models": [
+    {
+      "kind": "XGBoost",          // Train XGBoost directly on input features
+      "gpu": "single",            // Indicates whether to use single-gpu or multi-gpu
+      "hyperparameters": {
+        "max_depth": 6,           // Maximum tree depth
+        "learning_rate": 0.2,     // Learning rate for the boosting process
+        "num_parallel_tree": 3,   // Number of trees built in parallel
+        "num_boost_round": 512,   // Total number of boosting rounds
+        "gamma": 0.0              // Minimum loss reduction required to make a further partition on a leaf node
+      }
+    }
+  ]
+}
+```
+
+
+
+
+
 GNN and Xgb(oost) parameters can either be single value or a list of the data type specified. The list must be of the same size as the n_hops value. The list values allow different hyperparameters for each hop(layer).
 
 
