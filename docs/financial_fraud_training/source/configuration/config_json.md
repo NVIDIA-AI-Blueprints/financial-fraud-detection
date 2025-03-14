@@ -103,7 +103,13 @@ Here is example of a full training configuration file for training an XGBoost mo
 
 ## Train an XGBoost directly on input features
 
-To train an XGBoost model directly on input features, the model configuration should have the following schema, and the `kind` field must be set to `XGBoost`.
+To train an XGBoost model directly on input features, the model configuration should have the following schema, and the `kind` field must be set to `XGBoost`. **
+
+**Note: This is not preferred but might be necessary if one or more of these characteristics is not acceptable.__
+ - **performance - training takes too long on the gnn.__
+ - **precision - fewer predicted positives were actually positives**
+ - **accuracy - the percent of accurate predictions ( positive and negative ) was too low.**
+ - **recall - too few actual positives were predicted**
 
 
 ```sh
@@ -124,6 +130,7 @@ The `learning_rate` and `gamma`  fields take floating point values and the rest 
 
 
 Here is example of a full training configuration file for training an XGBoost model on directly on input features.
+
 
 ```sh
 {
