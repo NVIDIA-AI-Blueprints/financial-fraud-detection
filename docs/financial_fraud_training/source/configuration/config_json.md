@@ -162,23 +162,43 @@ For example, if
 - "paths"  path/on/machine that Contains needed paths for input and output
   - "data_dir" - Path to the input data directory.
   - "output_dir" - Path to the output models directory.
-- "gpu" - Indicates whether to use a single GPU or multiple GPUs. Valid options are 'single' or 'multi'. 
+- "gpu" - Indicates whether to use a single GPU or multiple GPUs. Valid options are 'single' or 'multi'.
 - "hyperparameters"
-  - "gnn" - 
-    - "hidden_channels" - Number of hidden channels (e.g., 32).
-    - "n_hops" - Number of hops (e.g., 2). Same as number of layers.
-    - "dropout_prob" - Dropout probability (e.g., 0.2). Chance to eliminate any given feature.
-    - "batch_size" - Batch size (e.g., 1024). How many nodes to predict to grab at a time. 
-  Parallelizes the run to fit into gpu memory. More batches increases run time.
+  - currently the NIM only supports single GPU.
+  - "gnn" -
+    - "hidden_channels" - Number of hidden channels(features) per node in the [hidden layer](https://en.wikipedia.org/wiki/Hidden_layer) (e.g., 32). 
+      - A larger number here allows more complexity in the model but may also cause overfitting in the model so represents a tradeoff between efficiency (lower hidden_channels) and depth (higher number) .
+    - "n_hops" - Number of hops (e.g., 2). How many links messages are passed over. 
+      - When this value is one, messages are only passed to directly connected nodes. A value of 2 adds neigbors of neighbors. The higher this number, the more nearby but unconnected nodes effect each other. A higher number also results in more nodes being similar which can hinder classification. It also slows down training and requires more memory.
+    - "dropout_prob" - Dropout probability (typically in the 0.1-0.5 range). Chance to eliminate any given feature.
+      - lower the value if the model [overfits](https://en.wikipedia.org/wiki/Overfitting).
+      - raise the value if losses are too high (underfitting).
+      - lower dropout rates enable faster convergence and less randomness.
+    - "batch_size" - Batch size (typically 256-4096). How many nodes to predict to grab at a time.
+      - a larger batch size increases memory use and slows down convergence.
+      - a smaller batch size has the reverse effects but increases variance, often used to parallelize the run to fit into gpu memory. More batches, the result of smaller ones, increase run time.
     - "fan_out" - Number of neighbors to sample for each node (e.g., 16). Random number of neighbors 
-    chosen from complete incident edgelist.
-    - "num_epochs" - Number of epochs to train the model.
+    chosen from complete incident edgelist. This is the size of the subset of incident nodes that will be used in training.
+      - "Good" values depend on the graph structure and computation capability.
+        - Higher values create more accurate models
+        - Lower values train faster.
+    - "num_epochs" - maximum number of epochs model will be trained.
+      - Training will finish earlier if no improvement occurs sooner than this number.
+      - 
   - "xgb" -
-    - "max_depth" - A list of possible max_depth values. e.g., [3, 6, 9]
-    - "learning_rate" - A list of possible learning rates in range 0 to 1. e.g., [0.01, 0.1]
+    - "max_depth" - The max_depth determines the maximum depth of the [decision tree](https://en.wikipedia.org/wiki/Decision_tree_learning) . e.g., [3, 6, 9]
+      - A lower value can prevent a model from revealing complex patterns in the data.
+      - A higher value can cause overfitting, and slows down training
+    - "learning_rate" - The learning rate for each algorithm iteration in the range 0 to 1. e.g., [0.01, 0.1]
+      - a lower value will slow down down fittlearninging and prevent overfitting.
+      - a higher value increase the contribution of each iteration at the expense of overfitting.
     - "num_parallel_tree" - A list of possible numbers of trees. e.g., [50, 100, 200]
-    - "num_boost_round" - integer, A list of possible number of boosting rounds. e.g., [1, 2, 4]
+      - Each iteration contains this number of decision trees.
+      - Higher numbers will increase performance and memory usage.
+    - "num_boost_round" - integer number of boosting rounds. e.g., [1, 2, 4]
+      - These boosting rounds add trees to the model. Adding to accuracy but risking overfitting.
     - "gamma" - float representing minimum loss reduction required to make a partition.
+      - increasing this value creates a simpler more conservative model.
 
 
 Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
