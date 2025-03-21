@@ -1,0 +1,6 @@
+
+
+# Sphinx docs & build artifacts
+docs/financial_fraud_training/build/*
+_html
+_text

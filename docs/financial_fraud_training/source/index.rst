@@ -1,3 +1,6 @@
+Financial Fraud Training Documentation
+======================================
+
 ~~~~~~~~~~~~
 Introduction
 ~~~~~~~~~~~~
@@ -9,14 +12,16 @@ The NIM encapsulate the complexity of creating the graph in cuGraph and building
 attribute store in WholeGraph.Once the graph is created, the GNN model is 
 trained and used to produce the embeddings that are then feed to XGBoost.
 
+
 ~~~~~~~~~~~~~~~~~
 Table of Contents
 ~~~~~~~~~~~~~~~~~
 
 .. toctree::
-   :maxdepth: 1
+   :maxdepth: 2
 
-
+   data/index
+   configuration/index
 
 
 
