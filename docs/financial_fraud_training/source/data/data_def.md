@@ -11,9 +11,6 @@ Your data should be organized under a parent directory (for example, `data_root`
     └── edges/
 ```
 
-
-
-
 - **nodes/**: Contains the files for node features and labels.
 - **edges/**: Contains the file for edges.
 
@@ -65,7 +62,8 @@ Provide the start and end offset of the target nodes in `node.<ext>` file. If th
 
 
 
-- **Optional JSON file containing the start and end offset of the target nodes in node.<ext> (`offset_range_of_training_node.json`)**
+- **Optional** JSON file containing the starting and ending offsets for the nodes in the node.<ext> file that will be used for training and validation. In other words, it defines the range of node offsets that the model will be trained on.
+
   This file should specify the start and end offsets for the training nodes a contiguous range `node.<ext>`. In other words, it defines the range of node offsets that the model will be trained on.
 
 
@@ -91,10 +89,8 @@ Provide the start and end offset of the target nodes in `node.<ext>` file. If th
 
 ### File Naming Convention
 
-For edges connecting nodes of the single node type, you should have:
 
-
-- **Main Edge File:**
+- **Edge File:**
   Name the file as `node_to_node.<ext>`, where `<ext>` is one of the supported file formats (CSV, Parquet, or ORC).
   Examples:
   - `node_to_node.csv`
@@ -103,7 +99,7 @@ For edges connecting nodes of the single node type, you should have:
 #### File Contents
 
 
-- **Main Edge File (`node_to_node.<ext>`):**
+- **Edge File (`node_to_node.<ext>`):**
   This file must contain at least two columns:
   - `src`: The column containing indices of the source nodes
   - `dst`: The column containing indices of the destination nodes.
@@ -185,15 +181,11 @@ The `<ext>` in the file names represents the file format. The supported file for
 - **Parquet**: Files with the `.parquet` extension (columnar storage).
 - **ORC**: Files with the `.orc` extension (Optimized Row Columnar format).
 
-
-The code automatically detects the file extension and uses the appropriate reader.
-
-
 #### Important Data Format Note
 
 
 - **Target Column:**
-  The last column in every file is assumed to be the target variable (`y`). All splits (training, validation, and test) are performed with this assumption in mind.
+The last column in every file (i.e.training.<ext>, validation.<ext> and test.<ext>) is assumed to be the target variable (y). All splits (training, validation, and test) are performed with this assumption in mind.
 
 
 
