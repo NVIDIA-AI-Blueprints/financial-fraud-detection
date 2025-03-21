@@ -60,11 +60,7 @@ Provide the start and end offset of the target nodes in `node.<ext>` file. If th
   - It is expected to have one column with any name, with the number of rows matching the feature file.
 
 
-
-
 - **Optional** JSON file containing the starting and ending offsets for the nodes in the node.<ext> file that will be used for training and validation. In other words, it defines the range of node offsets that the model will be trained on.
-
-  This file should specify the start and end offsets for the training nodes a contiguous range `node.<ext>`. In other words, it defines the range of node offsets that the model will be trained on.
 
 
   For example, for credit card fraud detection, if your `node.<ext>` file includes features for User, Merchant, and Transaction nodes, and your goal is to predict whether a transaction is fraudulent, you might be interested to train on transaction nodes only.
