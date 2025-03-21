@@ -150,55 +150,49 @@ Here is example of a full training configuration file for training an XGBoost mo
   ]
 }
 ```
+- "paths"  path/on/machine that contains needed paths for input and output
+  - "data_dir" - A path to a directory inside in container where the training data is mounted.
+  - "output_dir" - A path to a mounted directory inside in container where the output models and the artifacts will be saved.
 
-
-
-
-
-GNN and Xgb(oost) parameters can either be single value or a list of the data type specified. The list values create permutations that will be run independently.
-For example, if 
-
-
-- "paths"  path/on/machine that Contains needed paths for input and output
-  - "data_dir" - Path to the input data directory.
-  - "output_dir" - Path to the output models directory.
-- "gpu" - Indicates whether to use a single GPU or multiple GPUs. Valid options are 'single' or 'multi'.
-- "hyperparameters"
-  - currently the NIM only supports single GPU.
-  - "gnn" -
-    - "hidden_channels" - Number of hidden channels(features) per node in the [hidden layer](https://en.wikipedia.org/wiki/Hidden_layer) (e.g., 32). 
-      - A larger number here allows more complexity in the model but may also cause overfitting in the model so represents a tradeoff between efficiency (lower hidden_channels) and depth (higher number) .
-    - "n_hops" - Number of hops (e.g., 2). How many links messages are passed over. 
-      - When this value is one, messages are only passed to directly connected nodes. A value of 2 adds neigbors of neighbors. The higher this number, the more nearby but unconnected nodes effect each other. A higher number also results in more nodes being similar which can hinder classification. It also slows down training and requires more memory.
-    - "dropout_prob" - Dropout probability (typically in the 0.1-0.5 range). Chance to eliminate any given feature.
-      - lower the value if the model [overfits](https://en.wikipedia.org/wiki/Overfitting).
-      - raise the value if losses are too high (underfitting).
-      - lower dropout rates enable faster convergence and less randomness.
-    - "batch_size" - Batch size (typically 256-4096). How many nodes to predict to grab at a time.
-      - a larger batch size increases memory use and slows down convergence.
-      - a smaller batch size has the reverse effects but increases variance, often used to parallelize the run to fit into gpu memory. More batches, the result of smaller ones, increase run time.
-    - "fan_out" - Number of neighbors to sample for each node (e.g., 16). Random number of neighbors 
-    chosen from complete incident edgelist. This is the size of the subset of incident nodes that will be used in training.
-      - "Good" values depend on the graph structure and computation capability.
+  - "gpu" - Indicates whether to use a single GPU or multiple GPUs. Valid options are 'single' or 'multi'. currently the NIM only supports single GPU.
+  - "hyperparameters"
+    - "gnn" -
+      - "hidden_channels" - dimensionality of the feature representations in the hidden layers (e.g., 32).
+        - A larger number here allows more complexity in the model but may also cause overfitting.
+      - "n_hops" - Number of hops (e.g., 2). How many links messages are passed over.
+        - When this value is one, messages are only passed to directly connected nodes. A value of 2 adds neighbors of neighbors. The higher this number, the more nearby but unconnected nodes effect each other. A higher number also results in more nodes being similar which can hinder classification. It also slows down training and requires more memory.
+      - "dropout_prob" - Dropout probability (typically in the 0.1-0.5 range). Chance to eliminate any given feature.
+        - Lower the value if the model overfits.
+        - Raise the value if losses are too high (underfitting).
+        - lower dropout rates enable faster convergence and less randomness.
+      - "batch_size" - Batch size (typically 256-4096). How many nodes to predict to grab at a time.
+        - A larger batch size increases memory use.
+        - A smaller batch size has the reverse effects but increases variance, often used to parallelize the run to fit into gpu memory. More batches, the result of smaller ones, increase run time.
+      - "fan_out" - Maximum number of direct neighbors to sample for each node (e.g., 16).
+        - "Good" values depend on the graph structure and computation capability.
         - Higher values create more accurate models
         - Lower values train faster.
-    - "num_epochs" - maximum number of epochs model will be trained.
-      - Training will finish earlier if no improvement occurs sooner than this number.
-      - 
-  - "xgb" -
-    - "max_depth" - The max_depth determines the maximum depth of the [decision tree](https://en.wikipedia.org/wiki/Decision_tree_learning) . e.g., [3, 6, 9]
-      - A lower value can prevent a model from revealing complex patterns in the data.
-      - A higher value can cause overfitting, and slows down training
-    - "learning_rate" - The learning rate for each algorithm iteration in the range 0 to 1. e.g., [0.01, 0.1]
-      - a lower value will slow down down fittlearninging and prevent overfitting.
-      - a higher value increase the contribution of each iteration at the expense of overfitting.
-    - "num_parallel_tree" - A list of possible numbers of trees. e.g., [50, 100, 200]
-      - Each iteration contains this number of decision trees.
-      - Higher numbers will increase performance and memory usage.
-    - "num_boost_round" - integer number of boosting rounds. e.g., [1, 2, 4]
-      - These boosting rounds add trees to the model. Adding to accuracy but risking overfitting.
-    - "gamma" - float representing minimum loss reduction required to make a partition.
-      - increasing this value creates a simpler more conservative model.
+      - "num_epochs" - maximum number of epochs model will be trained (e.g., 16).
+        - Training will finish earlier if no improvement occurs sooner than this number.
+      - "metric" - The metric to be used to determine if a model is improving during the training. It can be Either "recall", "f1" or "precision". The default metric is "f1".
+    - "xgb"
+      - "max_depth" - The max_depth determines the maximum depth of the decision tree (e.g., 6).
+        - A lower value can prevent a model from revealing complex patterns in the data. A higher value can cause overfitting, and slows down training.
+      - "learning_rate" - The learning rate for each algorithm iteration in the range 0 to 1 (e.g., 0.2).
+        - A lower value will slow down learning and prevent overfitting. A higher value increase the contribution of each iteration at the expense of overfitting.
+      - "num_boost_round" - integer number of boosting rounds (e.g., 4).
+        - During each boosting round, the algorithm fits a new model to the residual errors (or gradients) from the previous ensemble of trees, progressively improving the model's predictions. Too few rounds can lead to underfitting, where the model doesn’t capture the underlying data patterns. Conversely, too many rounds can result in overfitting, where the model learns the noise in the training data.
+      - "num_parallel_tree" - A list of possible numbers of trees (e.g., 200).
+        - This parameter specifies how many trees are built in parallel during each boosting round. Higher numbers will increase performance and memory usage.
+      - "gamma" - float representing minimum loss reduction required to make a split in a decision tree (e.g., 0.05).
+        - Increasing this value creates a simpler more conservative model.
+
+The GNN hyper-parameters can either be a single value or a list of values, which will result in training a separate model for each possible combination of hyper-parameters. In that case, only the model with the best metric value is retained.
+
+
+
+
+
 
 
 Copyright (c) 2025, NVIDIA CORPORATION. All rights reserved.
