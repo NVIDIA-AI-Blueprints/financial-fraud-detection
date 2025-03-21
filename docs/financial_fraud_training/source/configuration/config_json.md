@@ -157,12 +157,12 @@ Here is example of a full training configuration file for training an XGBoost mo
   - "gpu" - Indicates whether to use a single GPU or multiple GPUs. Valid options are 'single' or 'multi'. currently the NIM only supports single GPU.
   - "hyperparameters"
     - "gnn" -
-      - "hidden_channels" - dimensionality of the feature representations in the hidden layers (e.g., 32).
+      - "hidden_channels" - dimensionality of the feature representations in the [hidden layer](https://en.wikipedia.org/wiki/Hidden_layer) (e.g., 32).
         - A larger number here allows more complexity in the model but may also cause overfitting.
       - "n_hops" - Number of hops (e.g., 2). How many links messages are passed over.
         - When this value is one, messages are only passed to directly connected nodes. A value of 2 adds neighbors of neighbors. The higher this number, the more nearby but unconnected nodes effect each other. A higher number also results in more nodes being similar which can hinder classification. It also slows down training and requires more memory.
       - "dropout_prob" - Dropout probability (typically in the 0.1-0.5 range). Chance to eliminate any given feature.
-        - Lower the value if the model overfits.
+        - Lower the value if the model [overfits](https://en.wikipedia.org/wiki/Overfitting).
         - Raise the value if losses are too high (underfitting).
         - lower dropout rates enable faster convergence and less randomness.
       - "batch_size" - Batch size (typically 256-4096). How many nodes to predict to grab at a time.
@@ -176,7 +176,7 @@ Here is example of a full training configuration file for training an XGBoost mo
         - Training will finish earlier if no improvement occurs sooner than this number.
       - "metric" - The metric to be used to determine if a model is improving during the training. It can be Either "recall", "f1" or "precision". The default metric is "f1".
     - "xgb"
-      - "max_depth" - The max_depth determines the maximum depth of the decision tree (e.g., 6).
+      - "max_depth" - The max_depth determines the maximum depth of the [decision tree](https://en.wikipedia.org/wiki/Decision_tree_learning)  (e.g., 6).
         - A lower value can prevent a model from revealing complex patterns in the data. A higher value can cause overfitting, and slows down training.
       - "learning_rate" - The learning rate for each algorithm iteration in the range 0 to 1 (e.g., 0.2).
         - A lower value will slow down learning and prevent overfitting. A higher value increase the contribution of each iteration at the expense of overfitting.
