@@ -48,10 +48,27 @@ This blueprint does not use any NVIDIA hosted services and runs fully in a local
 
 ## Software Components
 
-The following software components are used:
+### The following software components are used:
 
 - financial-fraud-training (LINK to NGC when ready)
 - [NVIDIA Dynamo](https://developer.nvidia.com/dynamo)
+
+### Software Requirements
+
+#### OS:
+- Linux distributions with glibc>=2.28 (released in August 2018), which include the following:
+- Arch Linux, minimum version 2018-08-02
+- Debian, minimum version 10.0
+- Fedora, minimum version 29
+- Linux Mint, minimum version 20
+- Rocky Linux / Alma Linux / RHEL, minimum version 8
+- Ubuntu, minimum version 20.04
+- Windows 11 using a WSL2 specific install
+#### CUDA & NVIDIA Drivers: One of the following supported versions:
+- CUDA 11.8 with Driver 520.61.05 or newer
+- CUDA 12.0 with Driver 525.60.13 or newer
+- CUDA 12.2 with Driver 535.86.10 or newer
+- CUDA 12.5 with Driver 555.42.06 or newer
 
 Everything is run via a Jupyter Notebook.
 
@@ -78,10 +95,14 @@ This notebook is a simple example of how to orchestrate a financial fraud detect
 
 ## Hardware Requirements
 
-- GPU: 1x A6000, A100, or H100, minimum of 32GB of memory 
+### System Requirements
 - CPU: x86_64 architecture
 - Storage: 10GB
 - System Memory: 16GB
+
+### GPU
+- NVIDIA Volta™ or higher with compute capability 7.0+
+
 
 <br>
 
