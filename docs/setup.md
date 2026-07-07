@@ -2,10 +2,8 @@
 ## Step 1: Clone the repo
 
 ```bash
-    git clone https://github.com/NVIDIA-AI-Blueprints//Financial-Fraud-Detection
+git clone https://github.com/NVIDIA-AI-Blueprints/Financial-Fraud-Detection
 ```
-
-git clone https://github.com/NVIDIA-AI-Blueprints//Financial-Fraud-Detection
 
 ## Step 2: Create a new conda environment
 
@@ -13,7 +11,7 @@ You can get a minimum installation of Conda and Mamba using [Miniforge](https://
 
 And then create an environment using the following command.
 
-Make sure that your shell or command prompt is pointint to `Financial-Fraud-Detection` before running `mamba env create`.
+Make sure that your shell or command prompt is pointing to `Financial-Fraud-Detection` before running `mamba env create`.
 
 ```bash
 ~/Financial-Fraud-Detection$ mamba env create -f conda/notebook_env.yaml
@@ -36,7 +34,7 @@ And, then run `mamba env create` from the right directory as shown below.
 Finally, activate the environment.
 
 ```bash
-conda activate notebook_env
+conda activate fraud_blueprint_env
 ```
 
 

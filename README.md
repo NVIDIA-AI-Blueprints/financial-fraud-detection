@@ -13,8 +13,8 @@
   - [Installation System Requirements](#installation-system-requirements)
   - [Obtain API key](#obtain-api-key)
   - [Clone The Repository](#clone-the-repository)
-  - [Set up the environment file](#set-up-the-environment-file)
-    - [API Key Environment variable](#api-key-environment-variable)
+  - [Set up the environment](#set-up-the-environment)
+    - [API Key](#api-key)
     - [Conda Environment](#conda-environment)
     - [Authenticate Docker with NGC](#authenticate-docker-with-ngc)
   - [Running the workflow](#running-the-workflow)
@@ -49,8 +49,8 @@ The following software components are used:
 
 ### Software Requirements
 - Operating System: Ubuntu 20.04 or newer
-- NVIDIA Driver version: 555.42.02 or newer
-- NVIDIA CUDA version: 12.5 or newer
+- NVIDIA Driver version: 560.28.03 or newer
+- NVIDIA CUDA version: 12.6 or newer
 - NVIDIA Container Toolkit version: 1.15.0 or newer
 - Docker version: Docker version 26 or newer
 
@@ -71,13 +71,13 @@ This notebook is a simple example of how to orchestrate a financial fraud detect
 ## Prerequisites
 
 - [Obtain NVIDIA key](#obtain-api-key)
-- [CUDA 12.5+ drivers](https://developer.nvidia.com/cuda-downloads) installed
+- [CUDA 12.6+ drivers](https://developer.nvidia.com/cuda-downloads) installed
 
 <br>
 
 ### Hardware Requirements
 
-- GPU: 1x A6000, A100, or H100, minimum of 32 GB of memory 
+- GPU: 1x A6000, A100, H100, or newer, minimum of 32 GB of memory 
 - CPU: x86_64 architecture
 - Storage: 10 GB
 - System Memory: 16 GB
@@ -105,10 +105,10 @@ Here are two possible methods to generate an API key for NGC:
   - Select your organization from the dropdown menu after logging in. You must select an organization which has NVIDIA AI Enterprise (NVAIE) enabled.
   - Click on your account in the top right, select "Setup" from the dropdown.
   - Click the "Generate Personal Key" option and then the "+ Generate Personal Key" button to create your API key.
-    - This will be used in the NVIDIA_API_KEY environment variable.
+    - This will be used as the `API_KEY` value in the notebook.
     - Click the "Generate API Key" option and then the "+ Generate API Key" button to create the API key.
 
-IMPORTANT: This will be used in the NVIDIA_API_KEY environment variable below.
+IMPORTANT: This will be pasted into the `API_KEY` variable in the notebook.
 
 - API catalog keys:
     NVIDIA [API catalog](https://build.nvidia.com/) or [NGC](https://org.ngc.nvidia.com/setup/personal-keys)
@@ -123,21 +123,17 @@ IMPORTANT: This will be used in the NVIDIA_API_KEY environment variable below.
 
 <br>
 
-## Set up the environment file
+## Set up the environment
 
-### API Key Environment variable
+### API Key
 
-   ```bash
-   # Create the API environment
-   export NVIDIA_API_KEY=your_key
-   ```
+The notebooks read your NGC key from an in-notebook variable named `API_KEY`. In the environment-setup cell, replace the placeholder line with your key:
 
-Note: Add the environment variable to the `.bashrc` file to persist it beyond a single instance.
-
-```bash
-# to persist the key
-echo "export NVIDIA_API_KEY=your_key" >> ~/.bashrc
+```python
+API_KEY = "NGC API KEY"   # replace with your key, e.g. "nvapi-..."
 ```
+
+This key is used to authenticate Docker with NGC (via `docker login`) so the required containers can be pulled. It is not read from an environment variable or a file, so it must be set inside the notebook.
 
 ### Conda Environment
 
@@ -152,7 +148,7 @@ Create an environment using the following command, making sure that you are in t
 Finally, activate the environment.
 
 ```bash
-conda activate notebook_env
+conda activate fraud_blueprint_env
 ```
 
 
@@ -161,10 +157,10 @@ conda activate notebook_env
 
 ### Authenticate Docker with NGC
 
-In order to pull images required by the Blueprint from NGC, you must first authenticate Docker with NGC. You can use the same NVIDIA API Key obtained in the [Obtain API key](#obtain-api-key) section (saved in the `NVIDIA_API_KEY` environment variable).
+In order to pull images required by the Blueprint from NGC, Docker must be authenticated with NGC. The notebook does this for you using the `API_KEY` you set above. To authenticate manually from a shell, substitute your key from the [Obtain API key](#obtain-api-key) section:
 
 ```bash
-echo "${NVIDIA_API_KEY}" | docker login nvcr.io -u '$oauthtoken' --password-stdin
+echo "<your-ngc-api-key>" | docker login nvcr.io -u '$oauthtoken' --password-stdin
 ```
 
 <br>
@@ -185,11 +181,11 @@ __Option 1:__
 
 __Option 2:__
 
- Starting Jupyter Notebook with [notebooks/financial-fraud-usage-v2.ipynb](notebooks/financial-fraud-usage-v2.ipynb).
+ Starting Jupyter Notebook with [notebooks/financial-fraud-usage-link-prediction.ipynb](notebooks/financial-fraud-usage-link-prediction.ipynb).
 
 ```bash
    cd notebooks
-   jupyter notebook financial-fraud-usage-v2.ipynb
+   jupyter notebook financial-fraud-usage-link-prediction.ipynb
 ```
 NOTE: If you are interested in node prediction, use [notebooks/financial-fraud-usage-np.ipynb](notebooks/financial-fraud-usage-np.ipynb) instead.
 
