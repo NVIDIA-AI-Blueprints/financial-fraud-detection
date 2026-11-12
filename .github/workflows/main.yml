@@ -1,3 +1,6 @@
+# SPDX-FileCopyrightText: Copyright (c) 2024-2026, NVIDIA CORPORATION & AFFILIATES. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+
 name: Financial Fraud Detection Notebook Runner
 
 on:
@@ -5,202 +8,189 @@ on:
     branches:
       - main
   workflow_dispatch:
+    inputs:
+      test_image:
+        description: "blueprint-github-test image that runs the QA cases"
+        required: false
+        default: "nvcr.io/rw983xdqtcdp/auto_test_team/blueprint-github-test-image:latest"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   run-notebook:
     runs-on: arc-runners-org-nvidia-ai-bp-1-gpu
+    timeout-minutes: 120
     env:
-      NOTEBOOK_PATH: ./financial-fraud-usage-link-prediction.ipynb
-      PYTHON_VERSION: 3.12
+      TEST_IMAGE: ${{ inputs.test_image || 'nvcr.io/rw983xdqtcdp/auto_test_team/blueprint-github-test-image:latest' }}
+      NOTEBOOK: financial-fraud-usage-link-prediction.ipynb
+      RESULT_NAME: Financial-Fraud-Detection_result
+      TRAINING_IMAGE: nvcr.io/nvidia/cugraph/financial-fraud-training:2.0.0
+      TRITON_IMAGE: dynamo-triton-with-gpu-xgboost
+      ENV_NAME: fraud_blueprint_env
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v3
-
-      - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262  # v4
         with:
-          python-version: ${{ env.PYTHON_VERSION }}
-          cache: 'pip'
-          cache-dependency-path: |
-            requirements.txt
-            **/*.ipynb
+          persist-credentials: false
 
-      - name: Install Git LFS
-        run: |
-          echo "===================== Install Git LFS ====================="
-          sudo apt-get update
-          sudo apt-get install -y git-lfs
-          git lfs install
-
-      - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install --upgrade pip ipython ipykernel
-          # Note: Kernel will be installed later from within conda environment
-
-      - name: Pull Git LFS files
-        run: |
-          echo "===================== Pull LFS files ====================="
-          git lfs pull
-
-      - name: Install Dependencies and Enable Environmnet
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          echo "===================== List folders ====================="
-          ls -la
-          echo ""
-          echo "===================== Installing Mamba ====================="
-          # Install in current directory
-          CONDA_INSTALL_PATH="${PWD}/conda_install"
-          curl -L -O "https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-$(uname)-$(uname -m).sh"
-          bash Miniforge3-$(uname)-$(uname -m).sh -b -p "${CONDA_INSTALL_PATH}"
-          # Set MAMBA_ROOT_PREFIX before sourcing
-          export MAMBA_ROOT_PREFIX="${CONDA_INSTALL_PATH}"
-          # Source conda and mamba
-          source "${CONDA_INSTALL_PATH}/etc/profile.d/conda.sh"
-          source "${CONDA_INSTALL_PATH}/etc/profile.d/mamba.sh"
-          # Verify installation
-          echo "Verifying mamba installation..."
-          mamba --version
-          echo "Miniforge3 installed successfully at ${CONDA_INSTALL_PATH}"
-          # Save to GITHUB_ENV for subsequent steps
-          echo "CONDA_INSTALL_PATH=${CONDA_INSTALL_PATH}" >> $GITHUB_ENV
-          echo "MAMBA_ROOT_PREFIX=${CONDA_INSTALL_PATH}" >> $GITHUB_ENV
-          echo ""
-          echo "===================== Setting up NVIDIA API Key ====================="
-          export NVIDIA_API_KEY="${NVIDIA_API_KEY}"
-          echo "export NVIDIA_API_KEY=${NVIDIA_API_KEY}" >> ~/.bashrc
-          echo "NVIDIA_API_KEY is set"
-          echo ""
-          echo "===================== Creating Conda Environment ====================="
-          # Create conda environment
-          cat conda/notebook_env.yaml
-          export G_SLICE=always-malloc
-          mamba config set use_lockfiles False
-          mamba env create -f conda/notebook_env.yaml -y
-          conda activate fraud_blueprint_env
-          echo "===================== Conda environment created successfully ====================="
-          echo ""
-          echo "===================== Installing Jupyter Kernel from Conda Environment ====================="
-          # Install kernel from within the conda environment
-          python -m ipykernel install --user --name fraud_blueprint_env --display-name "Python (fraud_blueprint_env)"
-          # Verify the kernel can import cudf
-          python -c "import cudf; print(f'Kernel Python can import cudf version: {cudf.__version__}')"
-          echo "Jupyter kernel installed successfully"
-
-      - name: Docker Login
-        env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          echo "===================== Docker Login ====================="
-          echo "${NVIDIA_API_KEY}" | docker login nvcr.io -u '$oauthtoken' --password-stdin
-          docker version
-
-      - name: Get System Info
+      - name: Check System Info
         run: |
           echo "===================== System Info ====================="
           more /etc/os-release
+          uname -a
+          docker version
+          nvidia-smi || echo "nvidia-smi not found on the runner"
+          df -h .
 
-      - name: Download Data File Using Docker
-        run: |
-          echo "===================== Downloading Data File ====================="
-
-          # Run the docker container to download the file
-          docker run --name data_downloader \
-            nvcr.io/rw983xdqtcdp/auto_test_team/blueprint-github-test-image:latest \
-            python3 utils/financial_fraud_detection_download_box_file.py
-
-          # Create the destination directory on the host
-          mkdir -p data/TabFormer/raw/
-
-          # Copy the file from the container to the host
-          docker cp data_downloader:/app/downloads/extracted/credit_card/transactions.tgz data/TabFormer/raw/
-
-          # Remove the container
-          docker rm data_downloader
-
-          # Verify the file was copied
-          echo "Verifying downloaded file:"
-          ls -lh data/TabFormer/raw/transactions.tgz
-          echo "Data file downloaded and copied successfully!"
-
-      - name: Run Jupyter Notebook with Papermill
+      - name: Docker login to nvcr.io
         env:
-          NVIDIA_API_KEY: ${{ secrets.NVIDIA_API_KEY }}
-        run: |
-          echo "===================== Running Notebook ====================="
-          OUTPUT_NOTEBOOK="result.ipynb"
-
-          # Source conda and activate environment
-          source "${CONDA_INSTALL_PATH}/etc/profile.d/conda.sh"
-          conda activate fraud_blueprint_env
-
-          # Verify cudf is available in the activated environment
-          python -c "import cudf; print(f'cudf version: {cudf.__version__}')"
-
-          # List available kernels
-          echo "Available Jupyter kernels:"
-          jupyter kernelspec list
-
-          cd notebooks
-          echo "Executing notebook: $NOTEBOOK_PATH"
-          papermill "$NOTEBOOK_PATH" "$OUTPUT_NOTEBOOK" --kernel fraud_blueprint_env --log-output --log-level DEBUG
-
-      - name: Convert result to html format
-        if: always()
-        run: |
-          cd notebooks
-          # Fallback if variable is empty
-          if [ -z "${CONDA_INSTALL_PATH}" ]; then
-            export CONDA_INSTALL_PATH="${PWD}/conda_install"
-          fi
-
-          # Source conda and activate environment for nbconvert
-          source "${CONDA_INSTALL_PATH}/etc/profile.d/conda.sh"
-          conda activate fraud_blueprint_env
-
-          OUTPUT_NOTEBOOK="result.ipynb"
-          jupyter nbconvert --to html "$OUTPUT_NOTEBOOK"
-
-      - name: Run Test Code
-        if: always()
-        env:
+          NGC_API_KEY: ${{ secrets.NGC_API_KEY || secrets.NVIDIA_API_KEY }}
           TEST_DOCKER_PULL_KEY: ${{ secrets.TEST_DOCKER_PULL_KEY }}
         run: |
-          cd notebooks
-          # Check if the HTML files exist before running tests
-          if [ ! -f "./result.html" ]; then
-            echo "Warning: result.html not found"
+          set -euo pipefail
+          if [ -z "${NGC_API_KEY:-}" ]; then
+            echo "::error::Add the repository secret NGC_API_KEY (or NVIDIA_API_KEY): the notebook pulls ${TRAINING_IMAGE}."
+            exit 1
           fi
-          # Run the test and capture the exit code
+          if [ -z "${TEST_DOCKER_PULL_KEY:-}" ]; then
+            echo "::error::Add the repository secret TEST_DOCKER_PULL_KEY: it pulls ${TEST_IMAGE}."
+            exit 1
+          fi
           echo "$TEST_DOCKER_PULL_KEY" | docker login nvcr.io --username '$oauthtoken' --password-stdin
-          docker run --rm \
-            -v ./result.html:/app/input/Financial-Fraud-Detection_result.html \
-            -v "$(pwd):/workspace" \
-            nvcr.io/rw983xdqtcdp/auto_test_team/blueprint-github-test-image:latest \
-            pytest -m financial_fraud_detection --disable-warnings --html=/workspace/financial-fraud-detection.html --self-contained-html
+          docker pull "$TEST_IMAGE"
 
-      - name: Upload the result notebook as artifact
+      - name: Remove leftovers of an earlier run
+        run: |
+          docker rm -f financial-fraud-training_lp tritonserver 2>/dev/null || true
+          docker rmi -f "$TRAINING_IMAGE" "$TRITON_IMAGE" 2>/dev/null || true
+
+      - name: Install Miniforge and create the conda environment
+        run: |
+          set -euo pipefail
+          curl -fsSL -o "$RUNNER_TEMP/miniforge.sh" \
+            https://github.com/conda-forge/miniforge/releases/latest/download/Miniforge3-Linux-x86_64.sh
+          bash "$RUNNER_TEMP/miniforge.sh" -b -p "$RUNNER_TEMP/miniforge"
+          echo "$RUNNER_TEMP/miniforge/bin" >> "$GITHUB_PATH"
+          "$RUNNER_TEMP/miniforge/bin/mamba" env create -f conda/notebook_env.yaml
+          "$RUNNER_TEMP/miniforge/bin/conda" run -n "$ENV_NAME" python -c "import cudf, sklearn, tritonclient; print('cudf', cudf.__version__)"
+
+      - name: Download the TabFormer dataset
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tabformer"
+          docker run --rm \
+            -v "$RUNNER_TEMP/tabformer:/download" \
+            -w /download \
+            "$TEST_IMAGE" \
+            bash -c "python /app/utils/financial_fraud_detection_download_box_file.py; chown -R $(id -u):$(id -g) /download"
+          TGZ="$RUNNER_TEMP/tabformer/downloads/extracted/credit_card/transactions.tgz"
+          if [ ! -s "$TGZ" ]; then
+            echo "::error::transactions.tgz was not downloaded from Box"
+            exit 1
+          fi
+          mkdir -p data/TabFormer/raw
+          cp "$TGZ" data/TabFormer/raw/
+          ls -lh data/TabFormer/raw
+
+      - name: Prepare the notebook for CI
+        working-directory: notebooks
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          import os
+
+          path = os.environ["NOTEBOOK"]
+          nb = json.load(open(path))
+          api_key_set = 0
+          tty_removed = 0
+          for cell in nb["cells"]:
+              if cell["cell_type"] != "code":
+                  continue
+              src = "".join(cell["source"])
+              new = src.replace('API_KEY="NGC API KEY"', 'API_KEY=os.environ["NGC_API_KEY"]')
+              api_key_set += new != src
+              if "docker run" in new and " -it " in new:
+                  new = new.replace(" -it ", " ")
+                  tty_removed += 1
+              cell["source"] = new.splitlines(keepends=True)
+          json.dump(nb, open(path, "w"), indent=1)
+          print(f"API_KEY cells: {api_key_set}, docker run cells without -it: {tty_removed}")
+          if api_key_set != 1 or tty_removed != 2:
+              raise SystemExit("the notebook changed: expected 1 API_KEY cell and 2 docker run -it cells")
+          PY
+
+      - name: Execute the notebook
+        working-directory: notebooks
+        env:
+          NGC_API_KEY: ${{ secrets.NGC_API_KEY || secrets.NVIDIA_API_KEY }}
+        run: |
+          set -euo pipefail
+          conda run -n "$ENV_NAME" --no-capture-output jupyter nbconvert \
+            --to notebook --execute --allow-errors \
+            --ExecutePreprocessor.kernel_name=python3 \
+            --ExecutePreprocessor.timeout=3600 \
+            --output "${RESULT_NAME}.ipynb" "$NOTEBOOK"
+          conda run -n "$ENV_NAME" --no-capture-output jupyter nbconvert \
+            --to html --output "${RESULT_NAME}" "${RESULT_NAME}.ipynb"
+          test -s "${RESULT_NAME}.html"
+          python3 - <<'PY'
+          import json
+          import os
+
+          nb = json.load(open(os.environ["RESULT_NAME"] + ".ipynb"))
+          errors = [
+              (i, o.get("ename"), o.get("evalue"))
+              for i, c in enumerate(nb["cells"])
+              for o in c.get("outputs", [])
+              if o.get("output_type") == "error"
+          ]
+          for i, name, value in errors:
+              print(f"::error::cell {i}: {name}: {value}")
+          raise SystemExit(1 if errors else 0)
+          PY
+
+      - name: Run QA tests
+        if: always() && hashFiles('notebooks/Financial-Fraud-Detection_result.html') != ''
+        working-directory: notebooks
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -v "./${RESULT_NAME}.html:/app/input/Financial-Fraud-Detection_result.html" \
+            -v "$(pwd):/workspace" \
+            "$TEST_IMAGE" \
+            pytest testcases/test_financial_fraud_detection_notebook.py -m financial_fraud_detection \
+              --timeout=900 --disable-warnings \
+              --html=/workspace/financial_fraud_detection.html --self-contained-html
+          test -s financial_fraud_detection.html
+
+      - name: Collect Triton logs
         if: always()
-        uses: actions/upload-artifact@v4
+        run: docker logs tritonserver > notebooks/tritonserver.log 2>&1 || echo "no tritonserver container"
+
+      - name: Upload notebook results as artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02  # v4
         with:
-          name: result notebook and pytest
+          name: notebook-results
           path: |
-             notebooks/result.html
-             notebooks/financial-fraud-detection.html
+            notebooks/Financial-Fraud-Detection_result.html
+            notebooks/Financial-Fraud-Detection_result.ipynb
+            notebooks/financial_fraud_detection.html
+            notebooks/tritonserver.log
           retention-days: 30
-  
+
       - name: Set result output
         id: set_result
-        if: always()  
+        if: always()
         run: |
           echo "RESULT=$(if [ ${{ job.status }} == 'success' ]; then echo 'PASS'; else echo 'FAIL'; fi)" >> $GITHUB_OUTPUT
-   
+
       - name: Send mail
         uses: dawidd6/action-send-mail@6e71c855c9a091d80a519621b9fd3e8d252ca40c
         if: always()
@@ -209,18 +199,25 @@ jobs:
           server_port: 587
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          
-          # Email details
+
           subject: "QA Test Workflow Result for ${{ github.repository }}"
           to: Github-Action-Blueprint-QA@nvidia.com
           from: github-workflow-notification@gmail.com
           html_body: |
             <p>Hello,</p>
-            
+
             <p>The workflow for repository: <strong>${{ github.repository }}</strong> has completed.<br>
             <strong>Result:</strong> ${{ steps.set_result.outputs.RESULT }}</p>
-            
+
             <p>You can review the details on GitHub:<br>
             <a href="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}">${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}</a></p>
-            
-            <p>Thanks!</p>      
+
+            <p>Thanks!</p>
+
+      - name: Cleanup
+        if: always()
+        run: |
+          docker stop tritonserver 2>/dev/null || true
+          docker rm tritonserver 2>/dev/null || true
+          docker rmi -f "$TRITON_IMAGE" "$TRAINING_IMAGE" 2>/dev/null || true
+          sudo rm -rf data/TabFormer "$RUNNER_TEMP/tabformer" || rm -rf data/TabFormer "$RUNNER_TEMP/tabformer" || true
